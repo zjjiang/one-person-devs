@@ -2,7 +2,7 @@
 
 ## 1. 概述
 
-基于调研文档（docs/research.md）的结论，OPD 需要作为一个轻量的工程迭代流程编排平台，核心价值是将 Claude Code 的编码能力融入完整的软件工程迭代流程。
+基于调研文档（docs/research_competitive.md、docs/research_se_practices.md）的结论，OPD 需要作为一个轻量的工程迭代流程编排平台，核心价值是将 Claude Code 的编码能力融入完整的软件工程迭代流程。
 
 **关键约束**：代码在外网（GitHub）开发发布，带到内网后替换对应组件实现。代码只能从外面进去，不能从里面出去。因此需要良好的抽象层设计。
 
@@ -183,16 +183,20 @@ class AIProvider(ABC):
     """AI 编码能力"""
 
     @abstractmethod
+    async def clarify(self, task: ClarifyTask) -> list[Question]:
+        """分析需求，返回需要澄清的问题"""
+
+    @abstractmethod
+    async def plan(self, task: PlanTask) -> Plan:
+        """生成实现方案（改哪些文件、大致思路）"""
+
+    @abstractmethod
     async def code(self, task: CodingTask) -> AsyncIterator[AIMessage]:
         """执行编码任务，流式返回消息"""
 
     @abstractmethod
     async def revise(self, task: RevisionTask) -> AsyncIterator[AIMessage]:
         """根据 review 意见修改代码"""
-
-    @abstractmethod
-    async def clarify(self, task: ClarifyTask) -> list[Question]:
-        """分析需求，返回需要澄清的问题"""
 ```
 
 - 外网实现：Claude Code（通过 claude-agent-sdk）
@@ -334,12 +338,73 @@ class Project:
     # 项目级上下文（AI 每次编码都会带上）
     tech_stack: str              # 技术栈描述
     architecture: str            # 架构说明
-    coding_conventions: str      # 编码规范
     context_docs: list[str]      # 关联的知识库文档 ID
+
+    # Rules（项目规则，AI 编码时必须遵守）
+    rules: list[Rule]
+
+    # Skills（Claude Code 自定义技能）
+    skills: list[Skill]
 
     # 历史积累
     stories: list[Story]
     decisions: list[Decision]    # 重要技术决策记录
+```
+
+#### Rule（项目规则）
+
+研发人员在 Web 上为项目配置的规则，AI 编码时自动注入。
+
+```python
+class Rule:
+    id: str
+    category: str        # coding / architecture / testing / git / forbidden
+    content: str         # 规则内容（自然语言）
+    enabled: bool        # 是否启用
+```
+
+**规则分类：**
+
+| 类别 | 示例 |
+|------|------|
+| coding | "使用 type hints"、"函数不超过 50 行"、"使用 f-string 而非 format" |
+| architecture | "所有 API 必须经过鉴权中间件"、"数据库操作必须走 Repository 层" |
+| testing | "新增函数必须有单元测试"、"覆盖率不低于 80%" |
+| git | "branch 命名: feature/xxx"、"commit message 使用 conventional commits" |
+| forbidden | "不要修改 xxx 模块"、"不要引入新的第三方依赖" |
+
+Rules 在调用 Claude Code 时会被拼入 system prompt，或生成为 `CLAUDE.md` 放到工作目录中。
+
+#### Skill（项目技能）
+
+为项目配置的 Claude Code 自定义技能，本质是预定义的命令 + 触发时机。
+
+```python
+class Skill:
+    id: str
+    name: str            # skill 名称（如 run-tests）
+    description: str     # 描述（给 AI 看的）
+    command: str         # 要执行的命令（如 pytest -x tests/）
+    trigger: str         # auto_after_coding / auto_before_pr / manual
+```
+
+**触发时机：**
+
+| trigger | 说明 |
+|---------|------|
+| auto_after_coding | AI 编码完成后自动执行（如跑测试、lint 检查） |
+| auto_before_pr | 创建 PR 前自动执行（如构建验证） |
+| manual | 手动触发（如数据库迁移） |
+
+Skills 通过 Claude Code SDK 的 MCP 机制注入：
+
+```python
+options = ClaudeAgentOptions(
+    permission_mode="bypassPermissions",
+    cwd=work_dir,
+    system_prompt=build_system_prompt(project),  # 包含 rules
+    mcp_servers={"project-tools": build_project_skills(project)}
+)
 ```
 
 #### Story（需求/功能）
@@ -461,10 +526,10 @@ def build_ai_prompt(project: Project, story: Story, round: Round) -> str:
 #### Round 内部状态流
 
 ```
-clarifying → coding → pr_created → reviewing → revising → testing → done
-                                      ↑            │
-                                      └────────────┘
-                                      (Review 后修改)
+clarifying → planning → coding → pr_created → reviewing → revising → testing → done
+                                                  ↑            │
+                                                  └────────────┘
+                                                  (Review 后修改)
 ```
 
 #### Round 之间的关系
@@ -472,7 +537,7 @@ clarifying → coding → pr_created → reviewing → revising → testing → 
 ```
 Round N (reviewing / revising / testing)
     │
-    ├── iterate（迭代）  → Round N+1 (coding, 同 branch, 在已有代码上继续改)
+    ├── iterate（迭代）  → Round N+1 (planning, 同 branch, 在已有代码上继续改)
     └── restart（重来）  → Round N+1 (clarifying, 新 branch, 关闭旧 PR)
 ```
 
@@ -482,7 +547,8 @@ Round N (reviewing / revising / testing)
 |------|------|---------|
 | created | 任务刚创建（仅首轮） | 用户提交任务 |
 | clarifying | AI 分析需求并提问，等待人回答 | AI 发现需求有歧义 / restart 新轮次 |
-| coding | AI 正在编码 | 用户回答完问题 / 需求无歧义 / iterate 新轮次 |
+| planning | AI 输出实现方案，等待人确认 | 需求澄清完成 |
+| coding | AI 正在编码 | 用户确认方案 / iterate 新轮次 |
 | pr_created | PR 已创建，等待 Review | AI 编码完成 |
 | reviewing | 研发人员正在 Review | PR 创建后自动进入 |
 | revising | AI 根据反馈修改中 | 用户触发（PR comments 或人工 prompt） |
@@ -524,12 +590,20 @@ class Orchestrator:
         # 3. 创建 Task 记录
         # 4. 调用 AIProvider.clarify() 分析需求
         # 5. 如果有问题 → 状态转为 clarifying
-        # 6. 如果无问题 → 直接进入 coding
+        # 6. 如果无问题 → 状态转为 planning
 
     async def handle_answer_questions(self, task_id, answers):
         # 1. 记录回答
-        # 2. 调用 AIProvider.code() 开始编码
-        # 3. 状态转为 coding
+        # 2. 调用 AIProvider.plan() 生成实现方案
+        # 3. 状态转为 planning
+
+    async def handle_confirm_plan(self, task_id, approved, feedback=None):
+        # 1. 如果 approved:
+        #      调用 AIProvider.code() 开始编码
+        #      状态转为 coding
+        # 2. 如果不 approved:
+        #      将 feedback 传给 AI 重新规划
+        #      保持 planning 状态
 
     async def handle_coding_complete(self, task_id):
         # 1. SCMProvider.create_branch()
@@ -580,7 +654,8 @@ class Orchestrator:
 ```
 one-person-devs/
 ├── docs/
-│   ├── research.md              # 调研文档
+│   ├── research_competitive.md  # 竞品调研
+│   ├── research_se_practices.md # 软件工程最佳实践调研
 │   └── design.md                # 详细设计文档（本文件）
 ├── opd/
 │   ├── __init__.py
@@ -636,6 +711,8 @@ one-person-devs/
 | GET | /api/projects/{pid}/stories | Story 列表 |
 | GET | /api/stories/{id} | Story 详情 |
 | POST | /api/stories/{id}/answer | 回答 AI 的问题 |
+| GET | /api/stories/{id}/plan | 查看 AI 的实现方案 |
+| POST | /api/stories/{id}/confirm-plan | 确认/拒绝实现方案 |
 | POST | /api/stories/{id}/revise | 触发 AI 修改（mode: comments / prompt） |
 | POST | /api/stories/{id}/new-round | 开启新轮次（type: iterate / restart） |
 | POST | /api/stories/{id}/test | 触发沙盒测试 |
