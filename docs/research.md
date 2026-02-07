@@ -17,7 +17,9 @@ AI 编码 → 创建 branch → 提 PR
     ↓
 研发人员在 GitHub 上 Code Review
     ↓
-有 comments → 人工触发 AI 修改 → 更新 PR
+触发 AI 修改（两种方式）：
+  a. 读取 GitHub PR comments → AI 根据 review 意见修改
+  b. 研发人员在 Web 上写 prompt → AI 根据指令修改
     ↓  (循环直到 Accept)
 沙盒验证 (Docker)
     ↓
@@ -121,8 +123,11 @@ OpenHands 提供四种使用方式：
 | [SWE-agent](https://github.com/princeton-nlp/SWE-agent) | 自动解决 GitHub Issue | 偏学术研究，无 Web UI，无 Review 流程 |
 | [Sweep AI](https://sweep.dev) | Issue → PR 自动化 | SaaS 产品，不可自托管，流程不可定制 |
 | [Devin](https://cognition.ai) | 商业 AI 开发者 | 闭源商业产品，价格高，不可定制 |
+| [Goose](https://github.com/block/goose) | 开源 AI coding agent（Block 出品，30k stars） | 本地 CLI agent，类似 Claude Code，无工程流程编排 |
 | [OpenCode](https://opencode.ai) | 开源 Claude Code 替代 | 纯 CLI 工具，无流程编排 |
 | Claude Code | Anthropic 官方 CLI | 编码能力强，但无任务管理和流程编排 |
+
+> **注**：Goose、OpenCode、Claude Code 都属于 AI coding agent 层，解决的是"AI 怎么写代码"的问题。OPD 是上面一层，解决的是"AI 写的代码怎么融入工程流程"。OPD 可以将这些 agent 作为 AIProvider 的不同实现来调度。
 
 ---
 
@@ -137,7 +142,7 @@ OpenHands 提供四种使用方式：
 | **适用场景** | 通用编码任务 | 从零生成项目 | 已有代码库的迭代开发 |
 | **人的角色** | 提需求 + 看结果 | 提需求 + 看结果 | 全程参与（Review/验证/上线） |
 | **Git 工作流** | 基础支持 | 无 | 核心功能（branch/PR/Review 循环） |
-| **Review 闭环** | 无 | 无 | 核心功能 |
+| **Review 闭环** | 无 | 无 | 核心功能（PR comments + 人工 prompt 双通道） |
 | **部署复杂度** | 高 | 中 | 低 |
 | **可定制性** | 需深入框架 | 需深入框架 | 流程可配置 |
 
@@ -193,7 +198,8 @@ OPD 不需要重新实现 AI 编码能力，而是站在 Claude Code 的肩膀�
 - 自动创建 feature branch（遵循团队命名规范）
 - 自动创建 PR（带有结构化的描述）
 - 读取 PR 上的 line comments 作为修改指令
-- 支持多轮 Review-修改循环
+- 支持研发人员在 Web 上直接写 prompt 指导 AI 修改（适合整体性、方向性的调整指令）
+- 支持多轮 Review-修改循环（comments 和 prompt 两种触发方式可混合使用）
 - 最终由人决定合并时机
 
 ### 4.2 为什么不基于 OpenHands 二次开发
