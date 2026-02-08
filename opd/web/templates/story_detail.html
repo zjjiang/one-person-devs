@@ -1,0 +1,563 @@
+{% extends "base.html" %}
+
+{% set STATUS_CN = {
+    'created': '已创建',
+    'clarifying': '需求澄清',
+    'planning': '方案规划',
+    'coding': 'AI 编码中',
+    'pr_created': 'PR 已创建',
+    'reviewing': '代码审查',
+    'revising': 'AI 修改中',
+    'testing': '测试中',
+    'done': '已完成'
+} %}
+{% set STORY_STATUS_CN = {
+    'created': '待处理',
+    'in_progress': '进行中',
+    'done': '已完成'
+} %}
+
+{% set STEPS = ['clarifying', 'planning', 'coding', 'reviewing', 'done'] %}
+{% set STEP_LABELS = {
+    'clarifying': '澄清需求',
+    'planning': '规划方案',
+    'coding': 'AI 编码',
+    'reviewing': '审查合并',
+    'done': '完成'
+} %}
+
+{% block title %}{{ story.title }}{% endblock %}
+
+{% block header %}
+<div class="page-header">
+    <h1>{{ story.title }}</h1>
+    <span class="badge badge-{{ story.status.value }}">
+        {{ STORY_STATUS_CN.get(story.status.value, story.status.value) }}
+    </span>
+</div>
+{% endblock %}
+
+{% block content %}
+<!-- Progress stepper -->
+{% if active_round %}
+{% set cur = active_round.status.value %}
+{% set step_map = {
+    'created': 0,
+    'clarifying': 0,
+    'planning': 1,
+    'coding': 2,
+    'pr_created': 3,
+    'reviewing': 3,
+    'revising': 3,
+    'testing': 3,
+    'done': 4
+} %}
+{% set cur_idx = step_map.get(cur, 0) %}
+<div class="section">
+    <div class="progress-bar-wrap">
+        {% for step in STEPS %}
+        <div class="pb-step {% if loop.index0 < cur_idx %}done{% elif loop.index0 == cur_idx %}current{% endif %}">
+            <div class="pb-dot">{% if loop.index0 < cur_idx %}<svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#fff" stroke-width="2" fill="none"/></svg>{% else %}{{ loop.index }}{% endif %}</div>
+            <div class="pb-label">{{ STEP_LABELS[step] }}</div>
+        </div>
+        {% if not loop.last %}
+        <div class="pb-line {% if loop.index0 < cur_idx %}done{% endif %}"></div>
+        {% endif %}
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<!-- Current status & actions -->
+{% if active_round %}
+<div class="section">
+    <div class="card">
+        <div class="card-header">
+            <h2>
+                第 {{ active_round.round_number }} 轮 &mdash;
+                {{ STATUS_CN.get(active_round.status.value, active_round.status.value) }}
+            </h2>
+        </div>
+        <div class="card-body">
+
+            {# ---- CLARIFYING ---- #}
+            {% if cur == 'clarifying' %}
+            {% if active_round.clarifications %}
+            <div class="status-hint">AI 分析了需求，提出了以下问题。请回答后继续。</div>
+            <div class="clarification-list" style="margin:16px 0;">
+                {% for c in active_round.clarifications %}
+                <div class="clarification-item" id="clarification-{{ c.id }}">
+                    <div class="clarification-q"><strong>Q:</strong> {{ c.question }}</div>
+                    {% if c.answer %}
+                    <div class="clarification-a"><strong>A:</strong> {{ c.answer }}</div>
+                    {% else %}
+                    <div class="answer-input" style="margin-top:6px;">
+                        <input type="text" class="form-control answer-field" data-id="{{ c.id }}" placeholder="输入你的回答...">
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            <div class="btn-group">
+                <button class="btn btn-primary" onclick="submitAnswers()">提交回答</button>
+                <button class="btn btn-secondary" onclick="skipClarify()">跳过澄清，直接规划</button>
+            </div>
+            {% else %}
+            <div class="status-hint">
+                <span class="spinner"></span>
+                AI 正在分析需求，请稍候...
+            </div>
+            <script>setTimeout(function(){ location.reload(); }, 5000);</script>
+            {% endif %}
+
+            {# ---- PLANNING ---- #}
+            {% elif cur == 'planning' %}
+                {% if plan_content %}
+                <div class="status-hint">AI 已生成实施方案，请审阅后确认或驳回。</div>
+                <div class="plan-display" style="margin:12px 0;">
+                    {% if plan_steps %}
+                    <div style="background:var(--bg-secondary, #f8fafc); padding:16px; border-radius:6px;">
+                        <h4 style="font-size:0.9rem; margin-bottom:12px; color:var(--text-primary);">实施步骤</h4>
+                        <ol style="padding-left:20px; margin:0;">
+                            {% for step in plan_steps %}
+                            <li style="margin-bottom:10px; font-size:0.9rem;">
+                                <div>{{ step.description }}</div>
+                                {% if step.files %}
+                                <div style="margin-top:4px;">
+                                    {% for f in step.files %}
+                                    <code style="font-size:0.8rem; background:#e2e8f0; padding:1px 6px; border-radius:3px; margin-right:4px;">{{ f }}</code>
+                                    {% endfor %}
+                                </div>
+                                {% endif %}
+                            </li>
+                            {% endfor %}
+                        </ol>
+                    </div>
+                    {% else %}
+                    <pre style="white-space:pre-wrap; font-size:0.85rem; background:var(--bg-secondary, #f8fafc); padding:12px; border-radius:6px; max-height:400px; overflow-y:auto;">{{ plan_content }}</pre>
+                    {% endif %}
+                </div>
+                <div class="btn-group" style="margin-top:12px;">
+                    <button class="btn btn-success" onclick="confirmPlan(true)">确认方案，开始编码</button>
+                    <button class="btn btn-warning" onclick="confirmPlan(false)">驳回，要求重新规划</button>
+                    <button class="btn btn-secondary" onclick="generatePlan()">重新生成方案</button>
+                </div>
+                {% else %}
+                <div id="plan-idle">
+                    <div class="status-hint">尚未生成实施方案。点击下方按钮让 AI 分析需求并生成方案。</div>
+                    <div class="btn-group" style="margin-top:12px;">
+                        <button class="btn btn-primary" onclick="generatePlan()">生成实施方案</button>
+                    </div>
+                </div>
+                <div id="plan-waiting" style="display:none;">
+                    <div class="status-hint">
+                        <span class="spinner"></span>
+                        AI 正在生成实施方案，请稍候...
+                    </div>
+                </div>
+                {% endif %}
+
+            {# ---- CODING ---- #}
+            {% elif cur == 'coding' %}
+            <div class="status-hint">
+                <span class="spinner"></span>
+                AI 正在编码中，完成后会自动创建 PR。
+            </div>
+            {% if coding_msg_count > 0 %}
+            <div style="margin-top:12px; padding:10px 14px; background:var(--bg-secondary, #f8fafc); border-radius:6px; font-size:0.85rem;">
+                <div style="color:var(--text-muted);">已收到 {{ coding_msg_count }} 条 AI 消息</div>
+                {% if latest_activity %}
+                <div style="margin-top:6px; color:var(--text-primary);">{{ latest_activity }}</div>
+                {% endif %}
+            </div>
+            {% else %}
+            <div style="margin-top:12px; padding:10px 14px; background:var(--bg-secondary, #f8fafc); border-radius:6px; font-size:0.85rem; color:var(--text-muted);">
+                暂未收到 AI 消息。如果长时间无响应，可能任务已中断。
+            </div>
+            {% endif %}
+            <div class="btn-group" style="margin-top:12px;">
+                <button class="btn btn-secondary btn-sm" onclick="resetToPlanning()">回退到规划阶段</button>
+            </div>
+            <script>setTimeout(function(){ location.reload(); }, 8000);</script>
+
+            {# ---- PR_CREATED / REVIEWING ---- #}
+            {% elif cur in ('pr_created', 'reviewing') %}
+            <div class="status-hint">
+                代码已提交，PR 已创建。请审查代码后选择操作。
+                {% if active_round.pr_id %}
+                <span style="margin-left:8px; font-size:0.85rem; color:var(--text-muted);">PR #{{ active_round.pr_id }}</span>
+                {% endif %}
+            </div>
+            <div class="btn-group" style="margin-top:12px;">
+                <button class="btn btn-primary" onclick="showReviseModal()">要求 AI 修改</button>
+                <button class="btn btn-secondary" onclick="triggerTest()">运行测试</button>
+                <button class="btn btn-success" onclick="triggerMerge()">合并 PR</button>
+            </div>
+
+            {# ---- REVISING ---- #}
+            {% elif cur == 'revising' %}
+            <div class="status-hint">
+                <span class="spinner"></span>
+                AI 正在根据反馈修改代码...
+            </div>
+            {% if latest_activity %}
+            <div style="margin-top:12px; padding:10px 14px; background:var(--bg-secondary, #f8fafc); border-radius:6px; font-size:0.85rem;">
+                <div style="color:var(--text-primary);">{{ latest_activity }}</div>
+            </div>
+            {% endif %}
+            <div class="btn-group" style="margin-top:12px;">
+                <button class="btn btn-secondary btn-sm" onclick="resetToReviewing()">回退到审查阶段</button>
+            </div>
+            <script>setTimeout(function(){ location.reload(); }, 8000);</script>
+
+            {# ---- TESTING ---- #}
+            {% elif cur == 'testing' %}
+            <div class="status-hint">
+                <span class="spinner"></span>
+                测试运行中...
+            </div>
+            <script>setTimeout(function(){ location.reload(); }, 8000);</script>
+
+            {# ---- DONE ---- #}
+            {% elif cur == 'done' %}
+            <div class="status-hint" style="color:var(--success);">本轮已完成。</div>
+            <div class="btn-group" style="margin-top:12px;">
+                <button class="btn btn-primary" onclick="showNewRoundModal()">开始新一轮迭代</button>
+            </div>
+            {% endif %}
+
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Story info (collapsible) -->
+<div class="section">
+    <div class="card">
+        <div class="card-header">
+            <h2>需求信息</h2>
+            <a href="/projects/{{ story.project_id }}" class="btn btn-sm btn-secondary">返回项目</a>
+        </div>
+        <div class="card-body">
+            <dl class="info-grid">
+                <dt>需求描述</dt>
+                <dd>{{ story.requirement }}</dd>
+                {% if story.acceptance_criteria %}
+                <dt>验收标准</dt>
+                <dd style="white-space:pre-wrap;">{{ story.acceptance_criteria }}</dd>
+                {% endif %}
+                <dt>当前轮次</dt>
+                <dd>第 {{ story.current_round }} 轮</dd>
+            </dl>
+        </div>
+    </div>
+</div>
+
+<!-- AI Activity Log (collapsed, human-readable) -->
+{% if ai_messages %}
+{% set readable_msgs = [] %}
+{% for msg in ai_messages %}
+    {% set role = msg.role.value if msg.role.value is defined else msg.role %}
+    {% set c = msg.content %}
+    {% if '[Implementation Plan]' in c or '[Revised Plan]' in c %}
+        {% set _ = readable_msgs.append({'icon': 'plan', 'text': 'AI 生成了实施方案'}) %}
+    {% elif '[Plan Feedback]' in c %}
+        {% set _ = readable_msgs.append({'icon': 'user', 'text': '用户反馈：' ~ c.replace('[Plan Feedback] ', '')}) %}
+    {% elif '[Revision Request]' in c %}
+        {% set _ = readable_msgs.append({'icon': 'user', 'text': '修改请求：' ~ c.replace('[Revision Request] ', '')[:200]}) %}
+    {% elif '[CI Pipeline]' in c %}
+        {% set _ = readable_msgs.append({'icon': 'tool', 'text': '触发了 CI 流水线'}) %}
+    {% elif '[Error]' in c %}
+        {% set _ = readable_msgs.append({'icon': 'error', 'text': c}) %}
+    {% elif role == 'tool' %}
+        {# skip raw tool JSON #}
+    {% elif role == 'assistant' and c|length < 500 %}
+        {% set _ = readable_msgs.append({'icon': 'ai', 'text': c[:200]}) %}
+    {% endif %}
+{% endfor %}
+{% if readable_msgs %}
+<div class="section">
+    <div class="card">
+        <div class="card-header">
+            <h2>活动记录</h2>
+        </div>
+        <div class="card-body">
+            <div style="display:flex; flex-direction:column; gap:8px;">
+                {% for m in readable_msgs %}
+                <div style="display:flex; align-items:flex-start; gap:8px; font-size:0.85rem; padding:6px 0; border-bottom:1px solid var(--border);">
+                    {% if m.icon == 'plan' %}
+                    <span style="color:var(--accent); flex-shrink:0;">&#9679;</span>
+                    {% elif m.icon == 'user' %}
+                    <span style="color:var(--success); flex-shrink:0;">&#9679;</span>
+                    {% elif m.icon == 'error' %}
+                    <span style="color:var(--danger); flex-shrink:0;">&#9679;</span>
+                    {% else %}
+                    <span style="color:var(--text-muted); flex-shrink:0;">&#9679;</span>
+                    {% endif %}
+                    <span>{{ m.text }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endif %}
+
+<!-- Rounds history (only show if multiple rounds) -->
+{% if story.rounds|length > 1 %}
+<div class="section">
+    <div class="card">
+        <div class="card-header">
+            <h2>历史轮次</h2>
+        </div>
+        <div class="card-body">
+            {% for round in story.rounds|sort(attribute='round_number', reverse=True) %}
+            <div class="round-item {% if active_round and round.id == active_round.id %}active{% endif %}" style="padding:8px 0; border-bottom:1px solid var(--border-color);">
+                <span>第 {{ round.round_number }} 轮</span>
+                <span class="badge badge-{{ round.status.value }}" style="margin-left:8px;">
+                    {{ STATUS_CN.get(round.status.value, round.status.value) }}
+                </span>
+                {% if round.branch_name %}
+                <span style="font-size:0.8rem; color:var(--text-muted); margin-left:8px;">{{ round.branch_name }}</span>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Revise modal -->
+<div id="revise-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:200; align-items:center; justify-content:center;">
+    <div class="card" style="width:480px; max-width:90vw;">
+        <div class="card-header">
+            <h2>要求 AI 修改</h2>
+            <button class="btn btn-sm btn-secondary" onclick="hideReviseModal()">&times;</button>
+        </div>
+        <div class="card-body">
+            <div class="form-group">
+                <label for="revise-mode">修改依据</label>
+                <select id="revise-mode" class="form-control">
+                    <option value="prompt">自定义指令</option>
+                    <option value="comments">根据 PR 评论</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="revise-prompt">修改指令</label>
+                <textarea id="revise-prompt" class="form-control" rows="3" placeholder="描述需要修改的内容..."></textarea>
+            </div>
+            <button class="btn btn-primary" onclick="submitRevise()">提交</button>
+        </div>
+    </div>
+</div>
+
+<!-- New round modal -->
+<div id="new-round-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:200; align-items:center; justify-content:center;">
+    <div class="card" style="width:480px; max-width:90vw;">
+        <div class="card-header">
+            <h2>开始新一轮</h2>
+            <button class="btn btn-sm btn-secondary" onclick="hideNewRoundModal()">&times;</button>
+        </div>
+        <div class="card-body">
+            <div class="form-group">
+                <label for="round-type">类型</label>
+                <select id="round-type" class="form-control">
+                    <option value="iterate">迭代优化</option>
+                    <option value="restart">推倒重来</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="round-requirement">更新需求（可选）</label>
+                <textarea id="round-requirement" class="form-control" rows="3" placeholder="如需修改需求描述，在此输入..."></textarea>
+            </div>
+            <button class="btn btn-primary" onclick="submitNewRound()">开始</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+var STORY_ID = "{{ story.id }}";
+var _autoRefreshTimer = null;
+
+function startAutoRefresh(interval) {
+    if (_autoRefreshTimer) clearInterval(_autoRefreshTimer);
+    _autoRefreshTimer = setInterval(function() { location.reload(); }, interval);
+}
+
+function stopAutoRefresh() {
+    if (_autoRefreshTimer) { clearInterval(_autoRefreshTimer); _autoRefreshTimer = null; }
+}
+
+async function submitAnswers() {
+    var fields = document.querySelectorAll('.answer-field');
+    var answers = {};
+    fields.forEach(function(f) {
+        var val = f.value.trim();
+        if (val) answers[f.dataset.id] = val;
+    });
+    if (fields.length > 0 && Object.keys(answers).length === 0) {
+        showToast('请至少回答一个问题', 'error');
+        return;
+    }
+    await apiCall('/api/stories/' + STORY_ID + '/answer', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ answers: answers })
+    });
+    showToast('回答已提交');
+    location.reload();
+}
+
+async function skipClarify() {
+    await apiCall('/api/stories/' + STORY_ID + '/answer', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ answers: {} })
+    });
+    showToast('已跳过澄清，进入规划阶段');
+    location.reload();
+}
+
+async function generatePlan() {
+    var idle = document.getElementById('plan-idle');
+    var waiting = document.getElementById('plan-waiting');
+    if (idle) idle.style.display = 'none';
+    if (waiting) waiting.style.display = 'block';
+    try {
+        await apiCall('/api/stories/' + STORY_ID + '/generate-plan', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: '{}'
+        });
+        showToast('方案生成已启动，AI 处理中...');
+        startAutoRefresh(5000);
+    } catch(e) {
+        showToast('请求失败: ' + (e.message || '未知错误'), 'error');
+        if (idle) idle.style.display = 'block';
+        if (waiting) waiting.style.display = 'none';
+    }
+}
+
+async function confirmPlan(confirmed) {
+    var feedback = null;
+    if (!confirmed) {
+        feedback = prompt('请输入反馈意见，告诉 AI 哪里需要改进：');
+        if (feedback === null) return;
+    }
+    await apiCall('/api/stories/' + STORY_ID + '/confirm-plan', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ confirmed: confirmed, feedback: feedback })
+    });
+    if (confirmed) {
+        showToast('方案已确认，AI 开始编码');
+    } else {
+        showToast('方案已驳回，AI 正在重新规划...');
+    }
+    location.reload();
+}
+
+function showReviseModal() { document.getElementById('revise-modal').style.display = 'flex'; }
+function hideReviseModal() { document.getElementById('revise-modal').style.display = 'none'; }
+
+async function submitRevise() {
+    var mode = document.getElementById('revise-mode').value;
+    var prompt_text = document.getElementById('revise-prompt').value.trim() || null;
+    await apiCall('/api/stories/' + STORY_ID + '/revise', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ mode: mode, prompt: prompt_text })
+    });
+    showToast('修改请求已提交');
+    hideReviseModal();
+    location.reload();
+}
+
+async function triggerTest() {
+    await apiCall('/api/stories/' + STORY_ID + '/test', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
+    });
+    showToast('测试已触发');
+    location.reload();
+}
+
+async function triggerMerge() {
+    if (!confirm('确定合并此 PR？')) return;
+    await apiCall('/api/stories/' + STORY_ID + '/merge', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
+    });
+    showToast('PR 已合并');
+    location.reload();
+}
+
+async function resetToPlanning() {
+    if (!confirm('确定回退到规划阶段？当前编码进度将丢失。')) return;
+    await apiCall('/api/stories/' + STORY_ID + '/reset', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ target_status: 'planning' })
+    });
+    showToast('已回退到规划阶段');
+    location.reload();
+}
+
+async function resetToReviewing() {
+    if (!confirm('确定回退到审查阶段？')) return;
+    await apiCall('/api/stories/' + STORY_ID + '/reset', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ target_status: 'reviewing' })
+    });
+    showToast('已回退到审查阶段');
+    location.reload();
+}
+
+function showNewRoundModal() { document.getElementById('new-round-modal').style.display = 'flex'; }
+function hideNewRoundModal() { document.getElementById('new-round-modal').style.display = 'none'; }
+
+async function submitNewRound() {
+    var type = document.getElementById('round-type').value;
+    var requirement = document.getElementById('round-requirement').value.trim() || null;
+    await apiCall('/api/stories/' + STORY_ID + '/new-round', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ type: type, requirement: requirement })
+    });
+    showToast('新一轮已开始');
+    hideNewRoundModal();
+    location.reload();
+}
+
+function refreshLogs() {
+    var logList = document.getElementById('ai-log-list');
+    if (!logList) return;
+    logList.innerHTML = '<div style="color:var(--text-muted);">加载中...</div>';
+    var es = new EventSource('/api/stories/' + STORY_ID + '/logs');
+    var messages = [];
+    es.onmessage = function(event) {
+        var data = JSON.parse(event.data);
+        if (data.type === 'done') { es.close(); if (messages.length === 0) logList.innerHTML = '<div style="color:var(--text-muted);">暂无消息</div>'; return; }
+        if (data.type === 'info') { logList.innerHTML = '<div style="color:var(--text-muted);">' + data.message + '</div>'; es.close(); return; }
+        messages.push(data);
+        if (messages.length === 1) logList.innerHTML = '';
+        var roleMap = {assistant:'AI', user:'用户', tool:'工具'};
+        var div = document.createElement('div');
+        div.className = 'ai-log-item role-' + data.role;
+        var content = data.content.length > 300 ? data.content.substring(0, 300) + '...' : data.content;
+        div.innerHTML = '<span class="ai-log-role">' + (roleMap[data.role]||data.role) + '</span>' + escapeHtml(content);
+        logList.appendChild(div);
+        logList.scrollTop = logList.scrollHeight;
+    };
+    es.onerror = function() { es.close(); };
+}
+
+function escapeHtml(text) {
+    var div = document.createElement('div');
+    div.appendChild(document.createTextNode(text));
+    return div.innerHTML;
+}
+</script>
+{% endblock %}

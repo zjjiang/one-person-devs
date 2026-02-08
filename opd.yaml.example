@@ -1,0 +1,38 @@
+# OPD Configuration
+# Copy this file to opd.yaml and fill in your values
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+
+database:
+  url: "mysql+aiomysql://root:jzj@localhost:3306/one_person_devs"
+
+workspace:
+  base_dir: "./workspace"  # where repos are cloned per task
+
+providers:
+  requirement:
+    type: local             # local | notion | icafe
+    config: {}
+  document:
+    type: local
+    config:
+      base_dir: ./docs
+  scm:
+    type: github
+    config:
+      token: ""             # GitHub personal access token
+  sandbox:
+    type: docker_local
+    config: {}
+  ci:
+    type: github_actions
+    config: {}
+  ai:
+    type: claude_code
+    config:
+      model: sonnet
+  notification:
+    type: web
+    config: {}

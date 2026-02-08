@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block title %}工作台{% endblock %}
+{% block nav_dashboard %}active{% endblock %}
+
+{% block header %}
+<div class="page-header">
+    <h1>项目列表</h1>
+    <a href="/projects/new" class="btn btn-primary">+ 新建项目</a>
+</div>
+{% endblock %}
+
+{% block content %}
+{% if projects %}
+<div class="project-grid">
+    {% for project in projects %}
+    <div class="project-card">
+        <h3><a href="/projects/{{ project.id }}">{{ project.name }}</a></h3>
+        <div class="meta">
+            <div class="repo-url">{{ project.repo_url }}</div>
+            {% if project.description %}
+            <div>{{ project.description[:120] }}{% if project.description|length > 120 %}...{% endif %}</div>
+            {% endif %}
+        </div>
+        <div>
+            <span class="story-count">
+                {{ story_counts.get(project.id, 0) }} 个需求
+            </span>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+    <h3>暂无项目</h3>
+    <p>创建你的第一个项目，开始 AI 驱动的开发之旅。</p>
+    <a href="/projects/new" class="btn btn-primary">+ 新建项目</a>
+</div>
+{% endif %}
+{% endblock %}

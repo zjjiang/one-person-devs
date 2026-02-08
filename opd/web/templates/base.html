@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}OPD{% endblock %} - 一人研发团队</title>
+    <link rel="stylesheet" href="/static/style.css">
+    {% block head %}{% endblock %}
+</head>
+<body>
+<div class="layout">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+        <div class="sidebar-brand">
+            <span>OPD</span>
+        </div>
+        <nav class="sidebar-nav">
+            <a href="/" class="{% block nav_dashboard %}{% endblock %}">
+                <i class="nav-icon">&#9632;</i>
+                <span>工作台</span>
+            </a>
+            <a href="/projects/new" class="{% block nav_new_project %}{% endblock %}">
+                <i class="nav-icon">+</i>
+                <span>新建项目</span>
+            </a>
+        </nav>
+        <div class="sidebar-footer">
+            OPD v0.1.0
+        </div>
+    </aside>
+
+    <!-- Main content -->
+    <main class="main-content">
+        {% block header %}{% endblock %}
+        <div class="page-body">
+            {% block content %}{% endblock %}
+        </div>
+    </main>
+</div>
+
+<!-- Toast container -->
+<div id="toast-container"></div>
+
+<script>
+function showToast(message, type) {
+    type = type || 'success';
+    var container = document.getElementById('toast-container');
+    var toast = document.createElement('div');
+    toast.className = 'toast toast-' + type;
+    toast.textContent = message;
+    container.appendChild(toast);
+    setTimeout(function() {
+        toast.style.opacity = '0';
+        toast.style.transition = 'opacity 0.3s';
+        setTimeout(function() { toast.remove(); }, 300);
+    }, 3000);
+}
+
+async function apiCall(url, options) {
+    options = options || {};
+    try {
+        var resp = await fetch(url, options);
+        if (!resp.ok) {
+            var data = await resp.json().catch(function() {
+                return { detail: '请求失败' };
+            });
+            throw new Error(data.detail || '请求失败');
+        }
+        if (resp.status === 204) return null;
+        return await resp.json();
+    } catch (err) {
+        showToast(err.message, 'error');
+        throw err;
+    }
+}
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

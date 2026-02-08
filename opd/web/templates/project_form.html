@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}新建项目{% endblock %}
+{% block nav_new_project %}active{% endblock %}
+
+{% block header %}
+<div class="page-header">
+    <h1>创建新项目</h1>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="card form-card">
+    <div class="card-body">
+        <form id="project-form" onsubmit="return handleSubmit(event)">
+            <div class="form-group">
+                <label for="name">项目名称 *</label>
+                <input type="text" id="name" name="name" class="form-control" required
+                       placeholder="我的项目">
+            </div>
+
+            <div class="form-group">
+                <label for="repo_url">仓库地址 *</label>
+                <input type="url" id="repo_url" name="repo_url" class="form-control" required
+                       placeholder="https://github.com/user/repo">
+            </div>
+
+            <div class="form-group">
+                <label for="description">项目描述</label>
+                <textarea id="description" name="description" class="form-control" rows="3"
+                          placeholder="简要描述项目..."></textarea>
+            </div>
+
+            <div class="form-group">
+                <label for="tech_stack">技术栈</label>
+                <input type="text" id="tech_stack" name="tech_stack" class="form-control"
+                       placeholder="例如：Python, FastAPI, PostgreSQL, React">
+                <div class="hint">逗号分隔的技术列表。</div>
+            </div>
+
+            <div class="form-group">
+                <label for="architecture">架构说明</label>
+                <textarea id="architecture" name="architecture" class="form-control" rows="3"
+                          placeholder="描述项目架构..."></textarea>
+            </div>
+
+            <div class="btn-group">
+                <button type="submit" class="btn btn-primary">创建项目</button>
+                <a href="/" class="btn btn-secondary">取消</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function handleSubmit(e) {
+    e.preventDefault();
+    var form = document.getElementById('project-form');
+    var data = {
+        name: form.name.value.trim(),
+        repo_url: form.repo_url.value.trim(),
+        description: form.description.value.trim() || null,
+        tech_stack: form.tech_stack.value.trim() || null,
+        architecture: form.architecture.value.trim() || null,
+    };
+    if (!data.name || !data.repo_url) {
+        showToast('项目名称和仓库地址为必填项', 'error');
+        return false;
+    }
+    try {
+        var result = await apiCall('/api/projects', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data),
+        });
+        showToast('项目创建成功');
+        window.location.href = '/projects/' + result.id;
+    } catch (err) {
+        // error already shown by apiCall
+    }
+    return false;
+}
+</script>
+{% endblock %}
