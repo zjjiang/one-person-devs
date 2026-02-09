@@ -182,12 +182,23 @@
 
             {# ---- PR_CREATED / REVIEWING ---- #}
             {% elif cur in ('pr_created', 'reviewing') %}
+            {% if active_round.pr_url %}
             <div class="status-hint">
                 代码已提交，PR 已创建。请审查代码后选择操作。
-                {% if active_round.pr_id %}
-                <span style="margin-left:8px; font-size:0.85rem; color:var(--text-muted);">PR #{{ active_round.pr_id }}</span>
-                {% endif %}
+                <a href="{{ active_round.pr_url }}" target="_blank" rel="noopener"
+                   style="margin-left:8px; font-size:0.85rem;">
+                    PR #{{ active_round.pr_id }}
+                </a>
             </div>
+            {% elif active_round.pr_id %}
+            <div class="status-hint">
+                代码已提交，PR #{{ active_round.pr_id }} 已创建。
+            </div>
+            {% else %}
+            <div class="status-hint" style="color:var(--warning, #e67e22);">
+                AI 编码已完成，但 PR 未成功创建。请检查 GitHub 配置或服务器日志。
+            </div>
+            {% endif %}
             <div class="btn-group" style="margin-top:12px;">
                 <button class="btn btn-primary" onclick="showReviseModal()">要求 AI 修改</button>
                 <button class="btn btn-secondary" onclick="triggerTest()">运行测试</button>
@@ -259,20 +270,25 @@
 {% for msg in ai_messages %}
     {% set role = msg.role.value if msg.role.value is defined else msg.role %}
     {% set c = msg.content %}
+    {% set ts = msg.created_at.strftime('%Y-%m-%d %H:%M') %}
     {% if '[Implementation Plan]' in c or '[Revised Plan]' in c %}
-        {% set _ = readable_msgs.append({'icon': 'plan', 'text': 'AI 生成了实施方案'}) %}
+        {% set _ = readable_msgs.append({'icon': 'plan', 'text': 'AI 生成了实施方案', 'time': ts}) %}
     {% elif '[Plan Feedback]' in c %}
-        {% set _ = readable_msgs.append({'icon': 'user', 'text': '用户反馈：' ~ c.replace('[Plan Feedback] ', '')}) %}
+        {% set _ = readable_msgs.append({'icon': 'user', 'text': '用户反馈：' ~ c.replace('[Plan Feedback] ', ''), 'time': ts}) %}
     {% elif '[Revision Request]' in c %}
-        {% set _ = readable_msgs.append({'icon': 'user', 'text': '修改请求：' ~ c.replace('[Revision Request] ', '')[:200]}) %}
+        {% set _ = readable_msgs.append({'icon': 'user', 'text': '修改请求：' ~ c.replace('[Revision Request] ', '')[:200], 'time': ts}) %}
+    {% elif '[PR Created]' in c %}
+        {% set _ = readable_msgs.append({'icon': 'plan', 'text': c.replace('[PR Created] ', ''), 'time': ts}) %}
+    {% elif '[Code Pushed]' in c %}
+        {% set _ = readable_msgs.append({'icon': 'plan', 'text': c.replace('[Code Pushed] ', ''), 'time': ts}) %}
     {% elif '[CI Pipeline]' in c %}
-        {% set _ = readable_msgs.append({'icon': 'tool', 'text': '触发了 CI 流水线'}) %}
+        {% set _ = readable_msgs.append({'icon': 'tool', 'text': '触发了 CI 流水线', 'time': ts}) %}
     {% elif '[Error]' in c %}
-        {% set _ = readable_msgs.append({'icon': 'error', 'text': c}) %}
+        {% set _ = readable_msgs.append({'icon': 'error', 'text': c, 'time': ts}) %}
     {% elif role == 'tool' %}
         {# skip raw tool JSON #}
     {% elif role == 'assistant' and c|length < 500 %}
-        {% set _ = readable_msgs.append({'icon': 'ai', 'text': c[:200]}) %}
+        {% set _ = readable_msgs.append({'icon': 'ai', 'text': c[:200], 'time': ts}) %}
     {% endif %}
 {% endfor %}
 {% if readable_msgs %}
@@ -294,7 +310,8 @@
                     {% else %}
                     <span style="color:var(--text-muted); flex-shrink:0;">&#9679;</span>
                     {% endif %}
-                    <span>{{ m.text }}</span>
+                    <span style="flex:1;">{{ m.text }}</span>
+                    <span style="color:var(--text-muted); flex-shrink:0; font-size:0.75rem; white-space:nowrap;">{{ m.time }}</span>
                 </div>
                 {% endfor %}
             </div>

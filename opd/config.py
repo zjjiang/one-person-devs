@@ -14,7 +14,15 @@ class ServerConfig(BaseModel):
 
 
 class DatabaseConfig(BaseModel):
-    url: str = "mysql+aiomysql://root:@localhost:3306/one_person_devs"
+    url: str = ""
+
+    def get_url(self) -> str:
+        """Return DB URL: .env DATABASE_URL > yaml url > default."""
+        return (
+            os.environ.get("DATABASE_URL")
+            or self.url
+            or "mysql+aiomysql://root:@localhost:3306/one_person_devs"
+        )
 
 
 class WorkspaceConfig(BaseModel):

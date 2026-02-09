@@ -31,7 +31,7 @@ def get_engine() -> AsyncEngine:
     if _engine is None:
         config = OPDConfig.load()
         _engine = create_async_engine(
-            config.database.url,
+            config.database.get_url(),
             echo=False,
             pool_pre_ping=True,
             pool_size=10,

@@ -12,6 +12,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator
 
+from dotenv import load_dotenv
+
+load_dotenv()  # load .env before anything reads os.environ
+
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates

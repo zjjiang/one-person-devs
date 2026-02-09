@@ -209,6 +209,7 @@ class Round(Base):
     requirement_snapshot: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     branch_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     pr_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    pr_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     pr_status: Mapped[Optional[PRStatus]] = mapped_column(
         Enum(PRStatus), nullable=True
     )

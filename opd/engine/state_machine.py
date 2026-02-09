@@ -40,6 +40,9 @@ VALID_TRANSITIONS: dict[RoundStatus, list[RoundStatus]] = {
     ],
     RoundStatus.pr_created: [
         RoundStatus.reviewing,
+        RoundStatus.revising,       # user can request revision directly
+        RoundStatus.testing,        # user can trigger tests directly
+        RoundStatus.done,           # user can merge directly
     ],
     RoundStatus.reviewing: [
         RoundStatus.revising,
