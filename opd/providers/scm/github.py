@@ -78,7 +78,7 @@ class GitHubSCMProvider(SCMProvider):
                 "Token needs 'repo' scope at minimum."
             )
 
-        kwargs: dict[str, Any] = {}
+        kwargs: dict[str, Any] = {"timeout": 15}
         if self._token:
             kwargs["login_or_token"] = self._token
         if self._base_url:
@@ -102,6 +102,38 @@ class GitHubSCMProvider(SCMProvider):
             self._gh.close()
             self._gh = None
 
+    async def preflight_check(self, repo_name: str) -> dict[str, Any]:
+        """Verify GitHub config: token validity, repo access, push permission."""
+        errors: list[str] = []
+
+        if not self._token:
+            errors.append("GITHUB_TOKEN 未配置")
+            return {"ok": False, "errors": errors}
+
+        if self._gh is None:
+            errors.append("GitHub 客户端未初始化")
+            return {"ok": False, "errors": errors}
+
+        try:
+            user = await self._run_sync(lambda: self._gh.get_user().login)
+            logger.info("Preflight: authenticated as %s", user)
+        except Exception as exc:
+            errors.append(f"GitHub 认证失败: {exc}")
+            return {"ok": False, "errors": errors}
+
+        try:
+            repo_obj = await self._run_sync(lambda: self._gh.get_repo(repo_name))
+            perms = await self._run_sync(lambda: repo_obj.permissions)
+            if not perms.push:
+                errors.append(f"没有 {repo_name} 的推送权限")
+        except GithubException as exc:
+            msg = exc.data.get("message", str(exc)) if hasattr(exc, "data") else str(exc)
+            errors.append(f"无法访问仓库 {repo_name}: {msg}")
+        except Exception as exc:
+            errors.append(f"检查仓库失败: {exc}")
+
+        return {"ok": len(errors) == 0, "errors": errors}
+
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
@@ -112,14 +144,20 @@ class GitHubSCMProvider(SCMProvider):
         return loop.run_in_executor(None, partial(func, *args, **kwargs))
 
     def _authed_url(self, url: str) -> str:
-        """Inject token into an HTTPS git URL for authentication."""
+        """Inject token into an HTTPS git URL for authentication.
+
+        Strips any existing credentials before adding the token to avoid
+        double-injection (e.g. ``https://tok@tok@github.com``).
+        """
         if not self._token:
             return url
-        # https://github.com/owner/repo.git -> https://{token}@github.com/owner/repo.git
         for prefix in ("https://", "http://"):
             if url.startswith(prefix):
-                return f"{prefix}{self._token}@{url[len(prefix):]}"
-        # SSH URLs or other formats — return as-is
+                rest = url[len(prefix):]
+                # Strip existing credentials (anything before @)
+                if "@" in rest:
+                    rest = rest.split("@", 1)[1]
+                return f"{prefix}{self._token}@{rest}"
         return url
 
     # ------------------------------------------------------------------
@@ -155,19 +193,12 @@ class GitHubSCMProvider(SCMProvider):
 
     async def push_branch(self, repo_dir: str, branch_name: str) -> None:
         _require_gitpython()
-        token = self._token
+        authed_url_fn = self._authed_url
 
         def _push(rd: str, bn: str) -> None:
             repo = gitpython.Repo(rd)
-            # Ensure remote URL has token for auth
-            if token:
-                origin = repo.remote("origin")
-                current_url = origin.url
-                for prefix in ("https://", "http://"):
-                    if current_url.startswith(prefix):
-                        authed = f"{prefix}{token}@{current_url[len(prefix):]}"
-                        origin.set_url(authed)
-                        break
+            origin = repo.remote("origin")
+            origin.set_url(authed_url_fn(origin.url))
             repo.git.push("origin", bn)
 
         await self._run_sync(_push, repo_dir, branch_name)

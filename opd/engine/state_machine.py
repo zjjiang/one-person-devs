@@ -54,7 +54,8 @@ VALID_TRANSITIONS: dict[RoundStatus, list[RoundStatus]] = {
     ],
     RoundStatus.testing: [
         RoundStatus.done,
-        RoundStatus.reviewing,      # test failure -> back to review cycle
+        RoundStatus.reviewing,      # verification needs more review
+        RoundStatus.revising,       # verification failed -> AI fix
     ],
     RoundStatus.done: [],            # terminal state
 }

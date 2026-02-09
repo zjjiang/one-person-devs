@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -125,6 +126,18 @@ async def index(
 
 
 # ---------------------------------------------------------------------------
+# Hello World page
+# ---------------------------------------------------------------------------
+
+@router.get("/hello", name="hello")
+async def hello(request: Request):
+    """Simple Hello World page."""
+    return templates.TemplateResponse("hello.html", {
+        "request": request,
+    })
+
+
+# ---------------------------------------------------------------------------
 # Create project form  (MUST be before /projects/{project_id})
 # ---------------------------------------------------------------------------
 
@@ -234,6 +247,8 @@ async def story_detail(
     plan_steps: list[dict] = []
     coding_msg_count: int = 0
     latest_activity: str | None = None
+    last_activity_at: datetime | None = None
+    error_message: str | None = None
     if active_round:
         msg_result = await db.execute(
             select(AIMessage)
@@ -255,9 +270,11 @@ async def story_detail(
                 coding_msg_count += 1
             if msg.role.value == "tool":
                 coding_msg_count += 1
-        # Latest non-plan assistant message
+        # Find latest error and latest non-plan assistant message
         for msg in reversed(ai_messages):
             c = msg.content
+            if "[Error]" in c and error_message is None:
+                error_message = c
             if "[Implementation Plan]" in c or "[Revised Plan]" in c or "[Plan Feedback]" in c:
                 continue
             if msg.role.value == "assistant" and len(c) < 300:
@@ -274,6 +291,10 @@ async def story_detail(
                 except (ValueError, TypeError):
                     pass
 
+        # Compute last activity timestamp
+        if ai_messages:
+            last_activity_at = ai_messages[-1].created_at
+
     return templates.TemplateResponse("story_detail.html", {
         "request": request,
         "story": story,
@@ -283,4 +304,7 @@ async def story_detail(
         "plan_steps": plan_steps,
         "coding_msg_count": coding_msg_count,
         "latest_activity": latest_activity,
+        "last_activity_at": last_activity_at,
+        "error_message": error_message,
+        "now": datetime.now(),
     })

@@ -77,6 +77,7 @@ class Orchestrator:
         self.workspace_dir = Path(workspace_dir).resolve()
         self.workspace_dir.mkdir(parents=True, exist_ok=True)
         self.sm = StateMachine()
+        self._running_tasks: dict[str, asyncio.Task] = {}  # round_id -> Task
 
     # ------------------------------------------------------------------
     # Provider helpers
@@ -178,6 +179,52 @@ class Orchestrator:
         self.sm.transition(round_.status, target)
         round_.status = target
 
+    def _track_task(self, round_id: str, task: asyncio.Task) -> None:
+        """Register a background task and auto-clean on completion."""
+        self._running_tasks[round_id] = task
+        task.add_done_callback(lambda _: self._running_tasks.pop(round_id, None))
+
+    def is_task_running(self, round_id: str) -> bool:
+        """Check if a background task is still running for the given round."""
+        task = self._running_tasks.get(round_id)
+        return task is not None and not task.done()
+
+    async def stop_task(
+        self, db: AsyncSession, story_id: str,
+    ) -> Round:
+        """Cancel the running background task and roll back to a safe state."""
+        story = await self._get_story(db, story_id)
+        round_ = self._active_round(story)
+
+        # Cancel the asyncio task if running
+        task = self._running_tasks.pop(round_.id, None)
+        if task and not task.done():
+            task.cancel()
+            logger.info("Cancelled background task for round %s", round_.id)
+
+        # Determine rollback target
+        rollback_map: dict[RoundStatus, RoundStatus] = {
+            RoundStatus.clarifying: RoundStatus.planning,
+            RoundStatus.coding: RoundStatus.planning,
+            RoundStatus.revising: RoundStatus.reviewing,
+        }
+        target = rollback_map.get(round_.status)
+        if target is None:
+            raise OrchestratorError(
+                f"Cannot stop: round is in '{round_.status.value}' state"
+            )
+
+        round_.status = target
+        db.add(AIMessage(
+            round_id=round_.id,
+            role=AIMessageRole.assistant,
+            content="[Stopped] 用户手动停止了当前任务。",
+        ))
+        await db.flush()
+        logger.info("Stopped round %s, rolled back to %s", round_.id, target.value)
+        await db.refresh(round_)
+        return round_
+
     # ------------------------------------------------------------------
     # Background task helpers
     # ------------------------------------------------------------------
@@ -192,6 +239,18 @@ class Orchestrator:
     ) -> None:
         """Generate a plan in the background and save it as an AIMessage."""
         from opd.db.session import get_db
+
+        # Record start
+        try:
+            async for db in get_db():
+                db.add(AIMessage(
+                    round_id=round_id,
+                    role=AIMessageRole.assistant,
+                    content="[Task Started] 正在生成实施方案...",
+                ))
+                await db.flush()
+        except Exception:
+            logger.exception("Failed to record start message for round %s", round_id)
 
         try:
             plan = await self.ai.plan(requirement, context)
@@ -226,6 +285,18 @@ class Orchestrator:
     ) -> None:
         """Run clarification in the background."""
         from opd.db.session import get_db
+
+        # Record start
+        try:
+            async for db in get_db():
+                db.add(AIMessage(
+                    round_id=round_id,
+                    role=AIMessageRole.assistant,
+                    content="[Task Started] 正在分析需求...",
+                ))
+                await db.flush()
+        except Exception:
+            logger.exception("Failed to record start message for round %s", round_id)
 
         try:
             questions = await self.ai.clarify(requirement, context)
@@ -266,6 +337,7 @@ class Orchestrator:
         round_id: str,
         coro_factory: Any,
         on_success_status: RoundStatus,
+        pre_start: Callable[[AsyncSession, Round], Awaitable[None]] | None = None,
         post_complete: Callable[[AsyncSession, Round], Awaitable[None]] | None = None,
     ) -> None:
         """Run an AI task in the background with its own DB session.
@@ -282,6 +354,9 @@ class Orchestrator:
             An async callable that yields AI message dicts.
         on_success_status:
             The status to transition to when the task completes.
+        pre_start:
+            Optional async callback ``(db, round_)`` invoked before the AI
+            task starts.  Used for clone/branch operations.
         post_complete:
             Optional async callback ``(db, round_)`` invoked after AI messages
             are collected but before the status transition.  Used for SCM
@@ -289,7 +364,49 @@ class Orchestrator:
         """
         from opd.db.session import get_db
 
+        # Record start
+        task_label = {"coding": "AI 编码", "revision": "AI 修改"}.get(task_name, task_name)
         try:
+            async for db in get_db():
+                db.add(AIMessage(
+                    round_id=round_id,
+                    role=AIMessageRole.assistant,
+                    content=f"[Task Started] {task_label}任务已启动...",
+                ))
+                await db.flush()
+        except Exception:
+            logger.exception("Failed to record start message for round %s", round_id)
+
+        try:
+            # Run pre-start callback (e.g. clone repo, create branch)
+            # in its own DB session so errors are committed immediately.
+            if pre_start:
+                try:
+                    async for db in get_db():
+                        result = await db.execute(
+                            select(Round).where(Round.id == round_id)
+                        )
+                        round_ = result.scalar_one_or_none()
+                        if round_ is None:
+                            logger.error("Background %s: round %s not found", task_name, round_id)
+                            return
+                        await pre_start(db, round_)
+                except Exception:
+                    logger.exception(
+                        "Pre-start callback failed for %s round %s",
+                        task_name, round_id,
+                    )
+                    try:
+                        async for db in get_db():
+                            db.add(AIMessage(
+                                round_id=round_id,
+                                role=AIMessageRole.assistant,
+                                content=f"[Error] 前置准备失败（{task_name}），请查看服务器日志。",
+                            ))
+                    except Exception:
+                        logger.exception("Failed to record pre-start error for round %s", round_id)
+                    return
+
             async for db in get_db():
                 result = await db.execute(
                     select(Round).where(Round.id == round_id)
@@ -394,9 +511,9 @@ class Orchestrator:
         if self.ai:
             requirement = self._build_requirement(story, round_)
             context = self._build_context(project, round_)
-            asyncio.create_task(self._run_clarify_background(
+            self._track_task(round_.id, asyncio.create_task(self._run_clarify_background(
                 story.id, round_.id, requirement, context,
-            ))
+            )))
         else:
             self._transition(round_, RoundStatus.planning)
             await db.flush()
@@ -423,9 +540,9 @@ class Orchestrator:
             project = story.project
             requirement = self._build_requirement(story, round_)
             context = self._build_context(project, round_)
-            asyncio.create_task(self._run_plan_background(
+            self._track_task(round_.id, asyncio.create_task(self._run_plan_background(
                 story.id, round_.id, requirement, context,
-            ))
+            )))
 
         logger.info("Answered questions for round %s, now planning", round_.id)
         await db.refresh(round_)
@@ -452,9 +569,9 @@ class Orchestrator:
         project = story.project
         requirement = self._build_requirement(story, round_)
         context = self._build_context(project, round_)
-        asyncio.create_task(self._run_plan_background(
+        self._track_task(round_.id, asyncio.create_task(self._run_plan_background(
             story.id, round_.id, requirement, context,
-        ))
+        )))
 
         logger.info("Triggered background plan generation for round %s", round_.id)
         await db.refresh(round_)
@@ -481,12 +598,33 @@ class Orchestrator:
                 context = self._build_context(project, round_)
                 if feedback:
                     context["plan_feedback"] = feedback
-                asyncio.create_task(self._run_plan_background(
+                self._track_task(round_.id, asyncio.create_task(self._run_plan_background(
                     story.id, round_.id, requirement, context,
                     tag="[Revised Plan]",
-                ))
+                )))
             await db.refresh(round_)
             return round_
+
+        # Pre-flight check: verify SCM config before starting coding
+        if self.scm and hasattr(self.scm, "preflight_check"):
+            project = story.project
+            repo_name = self._get_repo_name(project)
+            try:
+                check = await asyncio.wait_for(
+                    self.scm.preflight_check(repo_name),
+                    timeout=15.0,
+                )
+                if not check["ok"]:
+                    error_detail = "; ".join(check["errors"])
+                    raise OrchestratorError(
+                        f"GitHub 配置检查未通过: {error_detail}"
+                    )
+            except asyncio.TimeoutError:
+                logger.warning("Preflight check timed out, proceeding anyway")
+            except OrchestratorError:
+                raise
+            except Exception as exc:
+                raise OrchestratorError(f"GitHub 配置检查失败: {exc}") from exc
 
         self._transition(round_, RoundStatus.coding)
         await db.flush()
@@ -496,21 +634,6 @@ class Orchestrator:
             work_dir = self._work_dir(project, story)
             requirement = self._build_requirement(story, round_)
             context = self._build_context(project, round_)
-
-            if self.scm and not (work_dir / ".git").exists():
-                try:
-                    await self.scm.clone_repo(project.repo_url, str(work_dir))
-                except Exception:
-                    logger.exception("Clone failed for story %s", story.id)
-
-            branch_name = f"opd/{story.id[:8]}/round-{round_.round_number}"
-            if self.scm and (work_dir / ".git").exists():
-                try:
-                    await self.scm.create_branch(str(work_dir), branch_name)
-                    round_.branch_name = branch_name
-                    await db.flush()
-                except Exception:
-                    logger.exception("Branch creation failed for round %s", round_.id)
 
             plan_data: dict[str, Any] = {}
             for msg in round_.ai_messages:
@@ -522,14 +645,28 @@ class Orchestrator:
                         pass
 
             round_id = round_.id
-            _branch = branch_name
+            branch_name = f"opd/{story.id[:8]}/round-{round_.round_number}"
             _work = work_dir
             _project = project
+            _repo_url = project.repo_url
             _story_title = story.title
             _round_number = round_.round_number
 
             def _code_factory():
                 return self.ai.code(requirement, plan_data, context, work_dir=str(work_dir))
+
+            async def _pre_coding(db: AsyncSession, r: Round) -> None:
+                """Clone repo and create branch (runs in background)."""
+                if not self.scm:
+                    return
+                if not (_work / ".git").exists():
+                    await self.scm.clone_repo(_repo_url, str(_work))
+                    logger.info("Cloned repo to %s", _work)
+                if (_work / ".git").exists():
+                    await self.scm.create_branch(str(_work), branch_name)
+                    r.branch_name = branch_name
+                    await db.flush()
+                    logger.info("Created branch %s", branch_name)
 
             async def _post_coding(db: AsyncSession, r: Round) -> None:
                 """Commit changes, push branch, and create PR."""
@@ -562,10 +699,11 @@ class Orchestrator:
                     content=f"[PR Created] PR #{pr_result['id']}: {pr_result.get('url', '')}",
                 ))
 
-            asyncio.create_task(self._run_ai_background(
+            self._track_task(round_id, asyncio.create_task(self._run_ai_background(
                 "coding", story.id, round_id, _code_factory, RoundStatus.pr_created,
+                pre_start=_pre_coding,
                 post_complete=_post_coding,
-            ))
+            )))
 
         logger.info("Plan confirmed for round %s, now coding", round_.id)
         await db.refresh(round_)
@@ -627,10 +765,10 @@ class Orchestrator:
                     content="[Code Pushed] 修改已推送到 PR 分支。",
                 ))
 
-            asyncio.create_task(self._run_ai_background(
+            self._track_task(round_id, asyncio.create_task(self._run_ai_background(
                 "revision", story.id, round_id, _revise_factory, RoundStatus.reviewing,
                 post_complete=_post_revision,
-            ))
+            )))
 
         logger.info("Triggered revision for round %s (mode=%s)", round_.id, mode)
         await db.refresh(round_)
@@ -666,9 +804,9 @@ class Orchestrator:
             project = story.project
             requirement = self._build_requirement(story, round_)
             context = self._build_context(project, round_)
-            asyncio.create_task(self._run_clarify_background(
+            self._track_task(round_.id, asyncio.create_task(self._run_clarify_background(
                 story.id, round_.id, requirement, context,
-            ))
+            )))
         else:
             self._transition(round_, RoundStatus.planning)
             await db.flush()
@@ -707,7 +845,8 @@ class Orchestrator:
         round_ = self._active_round(story)
 
         if round_.status not in (
-            RoundStatus.reviewing, RoundStatus.testing, RoundStatus.done,
+            RoundStatus.pr_created, RoundStatus.reviewing,
+            RoundStatus.testing, RoundStatus.done,
         ):
             raise OrchestratorError(
                 f"Cannot merge: round is in '{round_.status.value}' state"
@@ -730,3 +869,76 @@ class Orchestrator:
         logger.info("Merged story %s", story.id)
         await db.refresh(story)
         return story
+
+    async def retry_pr(self, db: AsyncSession, story_id: str) -> Round:
+        """Retry commit/push/create PR for a round where coding completed but PR failed."""
+        story = await self._get_story(db, story_id)
+        round_ = self._active_round(story)
+
+        if round_.status != RoundStatus.pr_created:
+            raise OrchestratorError(
+                f"只能在 'pr_created' 状态下重试，当前状态: '{round_.status.value}'"
+            )
+        if round_.pr_url:
+            raise OrchestratorError("PR 已存在，无需重试")
+        if not self.scm:
+            raise OrchestratorError("SCM provider 未配置")
+
+        project = story.project
+        work_dir = self._work_dir(project, story)
+        repo_name = self._get_repo_name(project)
+
+        errors: list[str] = []
+
+        # Step 1: commit (may fail if nothing to commit — that's ok)
+        try:
+            await self.scm.commit_changes(
+                str(work_dir),
+                f"feat: {story.title} (round {round_.round_number})",
+            )
+        except Exception as exc:
+            logger.info("Retry PR: commit step skipped or failed: %s", exc)
+
+        # Step 2: push
+        if round_.branch_name:
+            try:
+                await self.scm.push_branch(str(work_dir), round_.branch_name)
+            except Exception as exc:
+                errors.append(f"推送失败: {exc}")
+
+        # Step 3: create PR
+        if not errors:
+            try:
+                pr_result = await self.scm.create_pull_request(
+                    repo_name,
+                    round_.branch_name,
+                    f"[OPD] {story.title}",
+                    f"Auto-generated by OPD\n\n"
+                    f"**Story:** {story.title}\n"
+                    f"**Round:** {round_.round_number}",
+                )
+                round_.pr_id = str(pr_result["id"])
+                round_.pr_url = pr_result.get("url", "")
+                round_.pr_status = PRStatus.open
+                db.add(AIMessage(
+                    round_id=round_.id,
+                    role=AIMessageRole.assistant,
+                    content=f"[PR Created] PR #{pr_result['id']}: {pr_result.get('url', '')}",
+                ))
+                await db.flush()
+                logger.info("Retry PR succeeded for round %s", round_.id)
+            except Exception as exc:
+                errors.append(f"创建 PR 失败: {exc}")
+
+        if errors:
+            error_detail = "; ".join(errors)
+            db.add(AIMessage(
+                round_id=round_.id,
+                role=AIMessageRole.assistant,
+                content=f"[Error] 重试 PR 创建失败: {error_detail}",
+            ))
+            await db.flush()
+            raise OrchestratorError(f"重试 PR 创建失败: {error_detail}")
+
+        await db.refresh(round_)
+        return round_

@@ -8,13 +8,14 @@
     'pr_created': 'PR 已创建',
     'reviewing': '代码审查',
     'revising': 'AI 修改中',
-    'testing': '测试中',
+    'testing': '人工验证',
     'done': '已完成'
 } %}
 {% set STORY_STATUS_CN = {
     'created': '待处理',
     'in_progress': '进行中',
-    'done': '已完成'
+    'done': '已完成',
+    'cancelled': '已关闭'
 } %}
 
 {% set STEPS = ['clarifying', 'planning', 'coding', 'reviewing', 'done'] %}
@@ -29,15 +30,52 @@
 {% block title %}{{ story.title }}{% endblock %}
 
 {% block header %}
-<div class="page-header">
-    <h1>{{ story.title }}</h1>
+<div class="page-header" style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+    <h1 style="margin:0;">{{ story.title }}</h1>
     <span class="badge badge-{{ story.status.value }}">
         {{ STORY_STATUS_CN.get(story.status.value, story.status.value) }}
     </span>
+    {% if story.status.value not in ('done', 'cancelled') %}
+    <button class="btn btn-sm btn-secondary" onclick="closeStory()" style="margin-left:auto; font-size:0.75rem;">关闭需求</button>
+    {% endif %}
 </div>
 {% endblock %}
 
 {% block content %}
+{# Macro: task status bar showing elapsed time and heartbeat #}
+{% macro task_status_bar() %}
+{% if last_activity_at %}
+{% set elapsed = (now - last_activity_at).total_seconds()|int %}
+<div class="task-status-bar" style="margin-top:10px; padding:8px 12px; background:var(--bg-secondary, #f8fafc); border-radius:6px; font-size:0.8rem; color:var(--text-muted); display:flex; align-items:center; gap:12px;">
+    <span id="heartbeat-dot" style="width:8px; height:8px; border-radius:50%; background:#22c55e; flex-shrink:0;"></span>
+    <span>最近活动: {{ elapsed // 60 }}分{{ elapsed % 60 }}秒前</span>
+    <span id="task-alive-label" style="margin-left:auto;">检测中...</span>
+</div>
+<script>
+(function() {
+    fetch('/api/stories/' + STORY_ID + '/task-status')
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            var dot = document.getElementById('heartbeat-dot');
+            var label = document.getElementById('task-alive-label');
+            if (d.running) {
+                dot.style.background = '#22c55e';
+                label.textContent = '后台任务运行中';
+                label.style.color = '#22c55e';
+            } else {
+                dot.style.background = '#ef4444';
+                label.textContent = '后台任务未运行';
+                label.style.color = '#ef4444';
+            }
+        })
+        .catch(function() {
+            var label = document.getElementById('task-alive-label');
+            if (label) label.textContent = '状态未知';
+        });
+})();
+</script>
+{% endif %}
+{% endmacro %}
 <!-- Progress stepper -->
 {% if active_round %}
 {% set cur = active_round.status.value %}
@@ -80,6 +118,13 @@
         </div>
         <div class="card-body">
 
+            {# ---- ERROR BANNER (shown in any state) ---- #}
+            {% if error_message %}
+            <div style="margin-bottom:12px; padding:10px 14px; background:#fef2f2; border:1px solid #fca5a5; border-radius:6px; font-size:0.85rem; color:#991b1b;">
+                <strong>错误：</strong>{{ error_message }}
+            </div>
+            {% endif %}
+
             {# ---- CLARIFYING ---- #}
             {% if cur == 'clarifying' %}
             {% if active_round.clarifications %}
@@ -107,6 +152,7 @@
                 <span class="spinner"></span>
                 AI 正在分析需求，请稍候...
             </div>
+            {{ task_status_bar() }}
             <script>setTimeout(function(){ location.reload(); }, 5000);</script>
             {% endif %}
 
@@ -143,26 +189,27 @@
                     <button class="btn btn-secondary" onclick="generatePlan()">重新生成方案</button>
                 </div>
                 {% else %}
-                <div id="plan-idle">
-                    <div class="status-hint">尚未生成实施方案。点击下方按钮让 AI 分析需求并生成方案。</div>
-                    <div class="btn-group" style="margin-top:12px;">
-                        <button class="btn btn-primary" onclick="generatePlan()">生成实施方案</button>
-                    </div>
+                <div class="status-hint">
+                    <span class="spinner"></span>
+                    AI 正在生成实施方案，请稍候...
                 </div>
-                <div id="plan-waiting" style="display:none;">
-                    <div class="status-hint">
-                        <span class="spinner"></span>
-                        AI 正在生成实施方案，请稍候...
-                    </div>
+                {{ task_status_bar() }}
+                <div class="btn-group" style="margin-top:12px;">
+                    <button class="btn btn-secondary btn-sm" onclick="generatePlan()">重新触发生成</button>
                 </div>
+                <script>setTimeout(function(){ location.reload(); }, 5000);</script>
                 {% endif %}
 
             {# ---- CODING ---- #}
             {% elif cur == 'coding' %}
-            <div class="status-hint">
+            <div id="coding-status-hint" class="status-hint">
                 <span class="spinner"></span>
                 AI 正在编码中，完成后会自动创建 PR。
             </div>
+            <div id="coding-orphan-warning" style="display:none; margin-top:8px; padding:10px 14px; background:#fef2f2; border:1px solid #fca5a5; border-radius:6px; font-size:0.85rem; color:#991b1b;">
+                <strong>⚠ 后台任务已中断</strong>（可能因服务器重启）。请回退到规划阶段重新开始编码。
+            </div>
+            {{ task_status_bar() }}
             {% if coding_msg_count > 0 %}
             <div style="margin-top:12px; padding:10px 14px; background:var(--bg-secondary, #f8fafc); border-radius:6px; font-size:0.85rem;">
                 <div style="color:var(--text-muted);">已收到 {{ coding_msg_count }} 条 AI 消息</div>
@@ -170,15 +217,36 @@
                 <div style="margin-top:6px; color:var(--text-primary);">{{ latest_activity }}</div>
                 {% endif %}
             </div>
-            {% else %}
-            <div style="margin-top:12px; padding:10px 14px; background:var(--bg-secondary, #f8fafc); border-radius:6px; font-size:0.85rem; color:var(--text-muted);">
-                暂未收到 AI 消息。如果长时间无响应，可能任务已中断。
-            </div>
             {% endif %}
+            <div style="margin-top:12px;">
+                <button class="btn btn-secondary btn-sm" onclick="toggleAILog()" style="font-size:0.8rem;">查看 AI 交互日志</button>
+            </div>
+            <div id="ai-log-panel" style="display:none; margin-top:8px; max-height:400px; overflow-y:auto; background:var(--bg-secondary, #f8fafc); border:1px solid var(--border); border-radius:6px; padding:10px; font-size:0.8rem; font-family:monospace;">
+                <div id="ai-log-list" style="color:var(--text-muted);">加载中...</div>
+            </div>
             <div class="btn-group" style="margin-top:12px;">
+                <button class="btn btn-danger btn-sm" onclick="stopTask()">紧急停止</button>
                 <button class="btn btn-secondary btn-sm" onclick="resetToPlanning()">回退到规划阶段</button>
             </div>
-            <script>setTimeout(function(){ location.reload(); }, 8000);</script>
+            <script>
+            (function() {
+                fetch('/api/stories/' + STORY_ID + '/task-status')
+                    .then(function(r) { return r.json(); })
+                    .then(function(d) {
+                        if (!d.running) {
+                            document.getElementById('coding-status-hint').style.display = 'none';
+                            document.getElementById('coding-orphan-warning').style.display = 'block';
+                            // One more refresh to pick up any error messages
+                            setTimeout(function(){ location.reload(); }, 5000);
+                        } else {
+                            setTimeout(function(){ location.reload(); }, 8000);
+                        }
+                    })
+                    .catch(function() {
+                        setTimeout(function(){ location.reload(); }, 8000);
+                    });
+            })();
+            </script>
 
             {# ---- PR_CREATED / REVIEWING ---- #}
             {% elif cur in ('pr_created', 'reviewing') %}
@@ -196,38 +264,91 @@
             </div>
             {% else %}
             <div class="status-hint" style="color:var(--warning, #e67e22);">
-                AI 编码已完成，但 PR 未成功创建。请检查 GitHub 配置或服务器日志。
+                AI 编码已完成，但 PR 未成功创建。可能原因：GitHub Token 无效、网络超时、仓库权限不足。
             </div>
             {% endif %}
             <div class="btn-group" style="margin-top:12px;">
+                {% if not active_round.pr_url %}
+                <button class="btn btn-warning" onclick="retryPR()">重试创建 PR</button>
+                {% endif %}
                 <button class="btn btn-primary" onclick="showReviseModal()">要求 AI 修改</button>
-                <button class="btn btn-secondary" onclick="triggerTest()">运行测试</button>
+                {% if active_round.pr_url %}
+                <button class="btn btn-secondary" onclick="triggerTest()">进入人工验证</button>
                 <button class="btn btn-success" onclick="triggerMerge()">合并 PR</button>
+                {% endif %}
             </div>
 
             {# ---- REVISING ---- #}
             {% elif cur == 'revising' %}
-            <div class="status-hint">
+            <div id="revising-status-hint" class="status-hint">
                 <span class="spinner"></span>
                 AI 正在根据反馈修改代码...
             </div>
+            <div id="revising-orphan-warning" style="display:none; margin-top:8px; padding:10px 14px; background:#fef2f2; border:1px solid #fca5a5; border-radius:6px; font-size:0.85rem; color:#991b1b;">
+                <strong>⚠ 后台任务已中断</strong>（可能因服务器重启）。请回退到审查阶段重新操作。
+            </div>
+            {{ task_status_bar() }}
             {% if latest_activity %}
             <div style="margin-top:12px; padding:10px 14px; background:var(--bg-secondary, #f8fafc); border-radius:6px; font-size:0.85rem;">
                 <div style="color:var(--text-primary);">{{ latest_activity }}</div>
             </div>
             {% endif %}
+            <div style="margin-top:12px;">
+                <button class="btn btn-secondary btn-sm" onclick="toggleAILog()" style="font-size:0.8rem;">查看 AI 交互日志</button>
+            </div>
+            <div id="ai-log-panel" style="display:none; margin-top:8px; max-height:400px; overflow-y:auto; background:var(--bg-secondary, #f8fafc); border:1px solid var(--border); border-radius:6px; padding:10px; font-size:0.8rem; font-family:monospace;">
+                <div id="ai-log-list" style="color:var(--text-muted);">加载中...</div>
+            </div>
             <div class="btn-group" style="margin-top:12px;">
+                <button class="btn btn-danger btn-sm" onclick="stopTask()">紧急停止</button>
                 <button class="btn btn-secondary btn-sm" onclick="resetToReviewing()">回退到审查阶段</button>
             </div>
-            <script>setTimeout(function(){ location.reload(); }, 8000);</script>
+            <script>
+            (function() {
+                fetch('/api/stories/' + STORY_ID + '/task-status')
+                    .then(function(r) { return r.json(); })
+                    .then(function(d) {
+                        if (!d.running) {
+                            document.getElementById('revising-status-hint').style.display = 'none';
+                            document.getElementById('revising-orphan-warning').style.display = 'block';
+                            setTimeout(function(){ location.reload(); }, 5000);
+                        } else {
+                            setTimeout(function(){ location.reload(); }, 8000);
+                        }
+                    })
+                    .catch(function() {
+                        setTimeout(function(){ location.reload(); }, 8000);
+                    });
+            })();
+            </script>
 
-            {# ---- TESTING ---- #}
+            {# ---- TESTING (Manual Verification) ---- #}
             {% elif cur == 'testing' %}
-            <div class="status-hint">
-                <span class="spinner"></span>
-                测试运行中...
+            <div class="status-hint">请在本地拉取分支进行人工验证，完成后选择操作。</div>
+            <div style="margin:12px 0; padding:12px 16px; background:var(--bg-secondary, #f8fafc); border-radius:6px; font-size:0.85rem;">
+                {% if active_round.branch_name %}
+                <div style="margin-bottom:8px;">
+                    <strong>分支：</strong>
+                    <code style="background:#e2e8f0; padding:2px 8px; border-radius:3px;">{{ active_round.branch_name }}</code>
+                </div>
+                <div style="margin-bottom:8px; color:var(--text-muted); font-size:0.8rem;">
+                    <code>git fetch origin && git checkout {{ active_round.branch_name }}</code>
+                </div>
+                {% endif %}
+                {% if active_round.pr_url %}
+                <div>
+                    <strong>PR：</strong>
+                    <a href="{{ active_round.pr_url }}" target="_blank" rel="noopener">
+                        PR #{{ active_round.pr_id }}
+                    </a>
+                </div>
+                {% endif %}
             </div>
-            <script>setTimeout(function(){ location.reload(); }, 8000);</script>
+            <div class="btn-group" style="margin-top:12px;">
+                <button class="btn btn-success" onclick="verifyPass()">验证通过，合并 PR</button>
+                <button class="btn btn-warning" onclick="showVerifyFailModal()">验证不通过</button>
+                <button class="btn btn-secondary btn-sm" onclick="backToReview()">返回审查</button>
+            </div>
 
             {# ---- DONE ---- #}
             {% elif cur == 'done' %}
@@ -281,6 +402,10 @@
         {% set _ = readable_msgs.append({'icon': 'plan', 'text': c.replace('[PR Created] ', ''), 'time': ts}) %}
     {% elif '[Code Pushed]' in c %}
         {% set _ = readable_msgs.append({'icon': 'plan', 'text': c.replace('[Code Pushed] ', ''), 'time': ts}) %}
+    {% elif '[Task Started]' in c %}
+        {% set _ = readable_msgs.append({'icon': 'ai', 'text': c.replace('[Task Started] ', ''), 'time': ts}) %}
+    {% elif '[Stopped]' in c %}
+        {% set _ = readable_msgs.append({'icon': 'error', 'text': c.replace('[Stopped] ', ''), 'time': ts}) %}
     {% elif '[CI Pipeline]' in c %}
         {% set _ = readable_msgs.append({'icon': 'tool', 'text': '触发了 CI 流水线', 'time': ts}) %}
     {% elif '[Error]' in c %}
@@ -392,6 +517,22 @@
         </div>
     </div>
 </div>
+<!-- Verify fail modal -->
+<div id="verify-fail-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:200; align-items:center; justify-content:center;">
+    <div class="card" style="width:480px; max-width:90vw;">
+        <div class="card-header">
+            <h2>验证不通过</h2>
+            <button class="btn btn-sm btn-secondary" onclick="hideVerifyFailModal()">&times;</button>
+        </div>
+        <div class="card-body">
+            <div class="form-group">
+                <label for="verify-feedback">问题描述（将作为 AI 修改指令）</label>
+                <textarea id="verify-feedback" class="form-control" rows="4" placeholder="描述验证中发现的问题..."></textarea>
+            </div>
+            <button class="btn btn-primary" onclick="submitVerifyFail()">提交并要求 AI 修改</button>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -439,10 +580,6 @@ async function skipClarify() {
 }
 
 async function generatePlan() {
-    var idle = document.getElementById('plan-idle');
-    var waiting = document.getElementById('plan-waiting');
-    if (idle) idle.style.display = 'none';
-    if (waiting) waiting.style.display = 'block';
     try {
         await apiCall('/api/stories/' + STORY_ID + '/generate-plan', {
             method: 'POST',
@@ -450,11 +587,9 @@ async function generatePlan() {
             body: '{}'
         });
         showToast('方案生成已启动，AI 处理中...');
-        startAutoRefresh(5000);
+        location.reload();
     } catch(e) {
         showToast('请求失败: ' + (e.message || '未知错误'), 'error');
-        if (idle) idle.style.display = 'block';
-        if (waiting) waiting.style.display = 'none';
     }
 }
 
@@ -510,6 +645,41 @@ async function triggerMerge() {
     location.reload();
 }
 
+async function verifyPass() {
+    if (!confirm('验证通过，确定合并此 PR？')) return;
+    await apiCall('/api/stories/' + STORY_ID + '/merge', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
+    });
+    showToast('验证通过，PR 已合并');
+    location.reload();
+}
+
+function showVerifyFailModal() { document.getElementById('verify-fail-modal').style.display = 'flex'; }
+function hideVerifyFailModal() { document.getElementById('verify-fail-modal').style.display = 'none'; }
+
+async function submitVerifyFail() {
+    var feedback = document.getElementById('verify-feedback').value.trim();
+    if (!feedback) { showToast('请填写问题描述', 'error'); return; }
+    await apiCall('/api/stories/' + STORY_ID + '/revise', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ mode: 'prompt', prompt: '[验证不通过] ' + feedback })
+    });
+    showToast('已提交修改请求');
+    hideVerifyFailModal();
+    location.reload();
+}
+
+async function backToReview() {
+    await apiCall('/api/stories/' + STORY_ID + '/reset', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ target_status: 'reviewing' })
+    });
+    showToast('已返回审查阶段');
+    location.reload();
+}
+
 async function resetToPlanning() {
     if (!confirm('确定回退到规划阶段？当前编码进度将丢失。')) return;
     await apiCall('/api/stories/' + STORY_ID + '/reset', {
@@ -519,6 +689,36 @@ async function resetToPlanning() {
     });
     showToast('已回退到规划阶段');
     location.reload();
+}
+
+async function stopTask() {
+    if (!confirm('确定紧急停止当前 AI 任务？')) return;
+    try {
+        await apiCall('/api/stories/' + STORY_ID + '/stop', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: '{}'
+        });
+        showToast('已停止当前任务');
+        location.reload();
+    } catch(e) {
+        showToast('停止失败: ' + (e.message || '未知错误'), 'error');
+    }
+}
+
+async function retryPR() {
+    try {
+        showToast('正在重试创建 PR...');
+        await apiCall('/api/stories/' + STORY_ID + '/retry-pr', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: '{}'
+        });
+        showToast('PR 创建成功');
+        location.reload();
+    } catch(e) {
+        showToast('重试失败: ' + (e.message || '未知错误'), 'error');
+    }
 }
 
 async function resetToReviewing() {
@@ -575,6 +775,30 @@ function escapeHtml(text) {
     var div = document.createElement('div');
     div.appendChild(document.createTextNode(text));
     return div.innerHTML;
+}
+
+async function closeStory() {
+    if (!confirm('确定关闭此需求？关闭后可在项目页面重新打开。')) return;
+    try {
+        await apiCall('/api/stories/' + STORY_ID + '/close', {
+            method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
+        });
+        showToast('需求已关闭');
+        location.reload();
+    } catch(e) {
+        showToast('关闭失败: ' + (e.message || '未知错误'), 'error');
+    }
+}
+
+function toggleAILog() {
+    var panel = document.getElementById('ai-log-panel');
+    if (!panel) return;
+    if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+        refreshLogs();
+    } else {
+        panel.style.display = 'none';
+    }
 }
 </script>
 {% endblock %}

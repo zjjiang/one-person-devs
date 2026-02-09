@@ -296,6 +296,40 @@ async def merge(
 
 
 @router.post(
+    "/api/stories/{story_id}/stop",
+    response_model=RoundResponse,
+    summary="Emergency stop: cancel the running AI task and roll back",
+)
+async def stop_task(
+    story_id: str,
+    db: AsyncSession = Depends(get_session),
+    orch: Orchestrator = Depends(get_orchestrator),
+) -> Round:
+    try:
+        round_ = await orch.stop_task(db, story_id)
+        return round_
+    except (OrchestratorError, InvalidTransitionError) as exc:
+        raise _handle_engine_error(exc) from exc
+
+
+@router.post(
+    "/api/stories/{story_id}/retry-pr",
+    response_model=RoundResponse,
+    summary="Retry commit/push/create PR after a failed attempt",
+)
+async def retry_pr(
+    story_id: str,
+    db: AsyncSession = Depends(get_session),
+    orch: Orchestrator = Depends(get_orchestrator),
+) -> Round:
+    try:
+        round_ = await orch.retry_pr(db, story_id)
+        return round_
+    except (OrchestratorError, InvalidTransitionError) as exc:
+        raise _handle_engine_error(exc) from exc
+
+
+@router.post(
     "/api/stories/{story_id}/reset",
     response_model=RoundResponse,
     summary="Reset the active round to a previous status (recovery)",
@@ -307,7 +341,7 @@ async def reset_round(
 ) -> Round:
     """Reset a stuck round back to a safe status."""
     target = body.get("target_status")
-    allowed = {"planning", "reviewing"}
+    allowed = {"planning", "reviewing", "pr_created"}
     if target not in allowed:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -321,6 +355,55 @@ async def reset_round(
     await db.flush()
     await db.refresh(round_)
     return round_
+
+
+@router.post(
+    "/api/stories/{story_id}/close",
+    response_model=StoryResponse,
+    summary="Close/cancel a story",
+)
+async def close_story(
+    story_id: str,
+    db: AsyncSession = Depends(get_session),
+    orch: Orchestrator = Depends(get_orchestrator),
+) -> Story:
+    story = await _get_story_or_404(db, story_id)
+    if story.status == StoryStatus.cancelled:
+        raise HTTPException(status_code=400, detail="Story is already closed")
+    # Cancel any running background task
+    if story.rounds:
+        active_round = max(story.rounds, key=lambda r: r.round_number)
+        task = orch._running_tasks.pop(active_round.id, None)
+        if task and not task.done():
+            task.cancel()
+        if active_round.status.value != "done":
+            active_round.status = RoundStatus.done
+            active_round.close_reason = "Story closed"
+    story.status = StoryStatus.cancelled
+    await db.flush()
+    await db.refresh(story)
+    return story
+
+
+@router.get(
+    "/api/stories/{story_id}/task-status",
+    summary="Check if a background AI task is running",
+)
+async def task_status(
+    story_id: str,
+    db: AsyncSession = Depends(get_session),
+    orch: Orchestrator = Depends(get_orchestrator),
+) -> dict:
+    story = await _get_story_or_404(db, story_id)
+    if not story.rounds:
+        return {"running": False, "status": "no_rounds"}
+    active_round = max(story.rounds, key=lambda r: r.round_number)
+    running = orch.is_task_running(active_round.id)
+    return {
+        "running": running,
+        "status": active_round.status.value if hasattr(active_round.status, "value") else active_round.status,
+        "round_id": active_round.id,
+    }
 
 
 @router.get(
