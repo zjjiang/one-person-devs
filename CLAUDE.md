@@ -42,7 +42,7 @@ HTTP requests → FastAPI routers (`opd/api/`) → `Orchestrator` (singleton via
 
 ### Core Engine (`opd/engine/`)
 
-- **`orchestrator.py`** — The central file. Coordinates providers, state machine, and DB to drive a Story through its lifecycle. Long-running AI operations run as background `asyncio.Task`s tracked in `_running_tasks` dict. The `_run_ai_background()` method supports `pre_start` (clone/branch) and `post_complete` (commit/push/create PR) callbacks.
+- **`orchestrator.py`** — The central file. Coordinates providers, state machine, and DB to drive a Story through its lifecycle. Long-running AI operations run as background `asyncio.Task`s tracked in `_running_tasks` dict. The `_run_ai_background()` method supports `pre_start` (clone/branch) and `post_complete` (commit/push/create PR) callbacks. Includes a pub/sub mechanism (`subscribe()`/`unsubscribe()`/`_publish()`) using `asyncio.Queue` for real-time SSE streaming of AI messages to the frontend.
 - **`state_machine.py`** — Round status transitions defined in `VALID_TRANSITIONS` dict. Flow: `created → clarifying → planning → coding → pr_created → reviewing ↔ revising → testing → done`.
 - **`context.py`** — Builds AI prompts (system prompt, coding prompt, plan prompt, revision prompt).
 
@@ -56,6 +56,16 @@ Current providers: `ai/claude_code`, `scm/github`, `notification/web`, `requirem
 
 The `Orchestrator` is a singleton initialized during app lifespan (`main.py:lifespan`). API routes get it via `Depends(get_orchestrator)` and DB sessions via `Depends(get_session)` — both defined in `opd/api/deps.py`.
 
+### Real-time SSE Streaming
+
+The coding/revising phases use Server-Sent Events for live AI message streaming. Architecture: `Orchestrator._publish()` pushes events to `asyncio.Queue` subscribers → `GET /api/stories/{id}/stream` endpoint yields SSE data → browser `EventSource` renders messages in a terminal-style console. The `/stream` endpoint replays historical messages first, then streams live events with 15s heartbeat keepalive.
+
+**Important**: Middleware (`opd/middleware.py`) is implemented as pure ASGI classes (not `BaseHTTPMiddleware`) to avoid buffering `StreamingResponse`. Streaming paths (`/stream`, `/logs`) are passed through without any wrapping.
+
+### Logging
+
+Centralized in `logs/` directory via `_setup_logging()` in `main.py`. Two rotating log files: `opd.log` (all levels) and `error.log` (ERROR+ only). Configuration via `LoggingConfig` in `opd/config.py` and `logging` section in `opd.yaml`.
+
 ### DB Session Pitfall
 
 `get_db()` is an async generator that auto-commits after `yield`. **Using `return` inside `async for db in get_db()` skips the commit.** When you need to persist data (e.g., error messages) in error paths, use a separate `get_db()` session block.
@@ -66,6 +76,6 @@ Tests use `pytest-asyncio` with `asyncio_mode = "auto"`. Fixtures in `tests/conf
 
 ## Configuration
 
-- `opd.yaml` — Main config (server, providers, workspace). Supports `${ENV_VAR}` interpolation.
+- `opd.yaml` — Main config (server, providers, workspace, logging). Supports `${ENV_VAR}` interpolation.
 - `.env` — Environment variables (GITHUB_TOKEN, ANTHROPIC_API_KEY). Loaded by `python-dotenv` at import time in `main.py`.
 - Ruff: `line-length = 100`, `target-version = "py311"`.
