@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 from typing import AsyncGenerator
 
@@ -408,7 +410,7 @@ async def task_status(
 
 @router.get(
     "/api/stories/{story_id}/logs",
-    summary="Stream AI logs for the story (SSE)",
+    summary="Stream AI logs for the story (SSE) — historical only",
 )
 async def get_logs(
     story_id: str,
@@ -438,7 +440,6 @@ async def get_logs(
         )
         messages = result.scalars().all()
         for msg in messages:
-            import json
             payload = json.dumps({
                 "id": msg.id,
                 "role": msg.role.value if hasattr(msg.role, "value") else msg.role,
@@ -456,3 +457,94 @@ async def get_logs(
             "Connection": "keep-alive",
         },
     )
+
+
+@router.get(
+    "/api/stories/{story_id}/stream",
+    summary="Real-time SSE stream of AI messages for the active round",
+)
+async def stream_messages(
+    story_id: str,
+    db: AsyncSession = Depends(get_session),
+    orch: Orchestrator = Depends(get_orchestrator),
+) -> StreamingResponse:
+    """Stream AI messages in real-time via Server-Sent Events.
+
+    1. Sends all historical messages for the active round.
+    2. Subscribes to the orchestrator's pub/sub for live updates.
+    3. Sends heartbeat pings every 15s to keep the connection alive.
+    4. Closes when a 'done' or 'status' event is received.
+    """
+    story = await _get_story_or_404(db, story_id)
+    if not story.rounds:
+        async def empty_stream() -> AsyncGenerator[str, None]:
+            yield _sse_event({"type": "info", "message": "No rounds yet"})
+        return StreamingResponse(
+            empty_stream(), media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+        )
+
+    active_round = max(story.rounds, key=lambda r: r.round_number)
+    round_id = active_round.id
+
+    # Fetch historical messages
+    result = await db.execute(
+        select(AIMessage)
+        .where(AIMessage.round_id == round_id)
+        .order_by(AIMessage.created_at.asc())
+    )
+    history = result.scalars().all()
+
+    # Subscribe to live updates
+    queue = orch.subscribe(round_id)
+    task_running = orch.is_task_running(round_id)
+
+    async def event_stream() -> AsyncGenerator[str, None]:
+        try:
+            # Phase 1: replay history
+            for msg in history:
+                yield _sse_event({
+                    "type": "message",
+                    "role": msg.role.value if hasattr(msg.role, "value") else msg.role,
+                    "content": msg.content,
+                    "created_at": msg.created_at.isoformat(),
+                })
+
+            yield _sse_event({"type": "history_end"})
+
+            # Phase 2: if no task running, close immediately
+            if not task_running:
+                yield _sse_event({"type": "done"})
+                return
+
+            # Phase 3: stream live events
+            while True:
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=15.0)
+                except asyncio.TimeoutError:
+                    # Heartbeat to keep connection alive
+                    yield ": heartbeat\n\n"
+                    continue
+
+                yield _sse_event(event)
+
+                # Terminal events
+                if event.get("type") in ("done", "status", "error"):
+                    return
+        finally:
+            orch.unsubscribe(round_id, queue)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+def _sse_event(data: dict) -> str:
+    """Format a dict as an SSE data line."""
+    return f"data: {json.dumps(data, default=str)}\n\n"

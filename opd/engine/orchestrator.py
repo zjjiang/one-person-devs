@@ -78,6 +78,8 @@ class Orchestrator:
         self.workspace_dir.mkdir(parents=True, exist_ok=True)
         self.sm = StateMachine()
         self._running_tasks: dict[str, asyncio.Task] = {}  # round_id -> Task
+        # Real-time message streaming: round_id -> list of subscriber queues
+        self._message_subscribers: dict[str, list[asyncio.Queue]] = {}
 
     # ------------------------------------------------------------------
     # Provider helpers
@@ -182,12 +184,45 @@ class Orchestrator:
     def _track_task(self, round_id: str, task: asyncio.Task) -> None:
         """Register a background task and auto-clean on completion."""
         self._running_tasks[round_id] = task
-        task.add_done_callback(lambda _: self._running_tasks.pop(round_id, None))
+
+        def _on_done(_: asyncio.Task) -> None:
+            self._running_tasks.pop(round_id, None)
+            self._publish(round_id, {"type": "done"})
+
+        task.add_done_callback(_on_done)
 
     def is_task_running(self, round_id: str) -> bool:
         """Check if a background task is still running for the given round."""
         task = self._running_tasks.get(round_id)
         return task is not None and not task.done()
+
+    # ------------------------------------------------------------------
+    # Real-time message pub/sub
+    # ------------------------------------------------------------------
+
+    def subscribe(self, round_id: str) -> asyncio.Queue:
+        """Subscribe to real-time messages for a round. Returns a Queue."""
+        queue: asyncio.Queue = asyncio.Queue()
+        self._message_subscribers.setdefault(round_id, []).append(queue)
+        return queue
+
+    def unsubscribe(self, round_id: str, queue: asyncio.Queue) -> None:
+        """Remove a subscriber queue."""
+        subs = self._message_subscribers.get(round_id, [])
+        try:
+            subs.remove(queue)
+        except ValueError:
+            pass
+        if not subs:
+            self._message_subscribers.pop(round_id, None)
+
+    def _publish(self, round_id: str, event: dict[str, Any]) -> None:
+        """Push an event to all subscribers of a round (non-blocking)."""
+        for queue in self._message_subscribers.get(round_id, []):
+            try:
+                queue.put_nowait(event)
+            except asyncio.QueueFull:
+                pass
 
     async def stop_task(
         self, db: AsyncSession, story_id: str,
@@ -262,6 +297,12 @@ class Orchestrator:
                     content=f"{tag}\n{plan_text}",
                 ))
                 await db.flush()
+            self._publish(round_id, {
+                "type": "message",
+                "role": "assistant",
+                "content": f"{tag}\n{plan_text}",
+            })
+            self._publish(round_id, {"type": "status", "status": "plan_ready"})
             logger.info("Background plan generation completed for round %s", round_id)
         except Exception:
             logger.exception("Background plan generation failed for round %s", round_id)
@@ -314,6 +355,10 @@ class Orchestrator:
                     self.sm.transition(round_.status, RoundStatus.planning)
                     round_.status = RoundStatus.planning
                 await db.flush()
+            self._publish(round_id, {
+                "type": "status",
+                "status": "planning" if not questions else "clarifying",
+            })
             logger.info("Background clarify completed for round %s", round_id)
         except Exception:
             logger.exception("Background clarify failed for round %s", round_id)
@@ -427,6 +472,11 @@ class Orchestrator:
                             role=AIMessageRole.assistant,
                             content=content,
                         ))
+                        self._publish(round_id, {
+                            "type": "message",
+                            "role": "assistant",
+                            "content": content,
+                        })
                     elif msg_type == "tool_use":
                         tool_info = json.dumps({
                             "tool": msg.get("name", ""),
@@ -437,6 +487,11 @@ class Orchestrator:
                             role=AIMessageRole.tool,
                             content=tool_info,
                         ))
+                        self._publish(round_id, {
+                            "type": "message",
+                            "role": "tool",
+                            "content": tool_info,
+                        })
 
                 # Run post-completion callback (e.g. commit/push/create PR)
                 if post_complete:
@@ -456,12 +511,17 @@ class Orchestrator:
                 # Transition to success status
                 round_.status = on_success_status
                 await db.flush()
+                self._publish(round_id, {
+                    "type": "status",
+                    "status": on_success_status.value,
+                })
                 logger.info(
                     "Background %s completed for round %s -> %s",
                     task_name, round_id, on_success_status.value,
                 )
         except Exception:
             logger.exception("Background %s failed for round %s", task_name, round_id)
+            self._publish(round_id, {"type": "error", "message": f"Background task '{task_name}' failed"})
             try:
                 async for db in get_db():
                     db.add(AIMessage(

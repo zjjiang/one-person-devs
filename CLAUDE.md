@@ -1,70 +1,71 @@
 # CLAUDE.md
 
-## 项目概述
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-OPD (One Person Devs) — AI 驱动的工程迭代流程编排平台。将 Claude Code 的编码能力融入完整的软件工程迭代流程。
+## Project Overview
 
-## 技术栈
+OPD (One Person Devs) — AI-driven engineering workflow orchestration platform. Integrates Claude Code's coding capabilities into a complete software engineering iteration lifecycle: requirement clarification → plan design → AI coding → code review → manual verification → merge.
 
-- **后端**: FastAPI + SQLAlchemy 2.0 (async) + Pydantic v2
-- **数据库**: MySQL (aiomysql), 迁移用 Alembic
-- **前端**: Jinja2 模板 + 原生 JS（无前端框架）
-- **AI**: claude-agent-sdk (Claude Code)
-- **SCM**: PyGithub + GitPython
-- **运行**: uv 管理依赖, Python >= 3.11
+**Tech stack**: FastAPI + SQLAlchemy 2.0 (async) + Pydantic v2 + MySQL (aiomysql) + Alembic + Jinja2 templates + vanilla JS + claude-agent-sdk + PyGithub/GitPython. Managed with `uv`, Python >= 3.11.
 
-## 常用命令
+## Commands
 
 ```bash
-# 启动服务
-uv run python -m opd.main serve          # 端口 8765
+# Start server (default port 8765)
+uv run python -m opd.main serve
+uv run opd serve                         # equivalent CLI entry point
+uv run opd serve --reload                # dev mode with auto-reload
 
-# 数据库
-mysql -uroot -pjzj one_person_devs       # 连接数据库
-uv run alembic upgrade head              # 运行迁移
+# Database
+uv run alembic upgrade head              # run migrations
+uv run alembic revision --autogenerate -m "description"  # create migration
 
-# 测试
-uv run pytest tests/
+# Tests
+uv run pytest tests/                     # all tests
+uv run pytest tests/unit/test_state_machine.py           # single file
+uv run pytest tests/unit/test_state_machine.py::test_name  # single test
+uv run pytest -x                         # stop on first failure
 
-# 代码检查
-uv run ruff check opd/
+# Lint
+uv run ruff check opd/                   # check
+uv run ruff check --fix opd/             # auto-fix
+
+# Install dependencies
+uv sync --extra ai --extra dev
 ```
 
-## 项目结构要点
+## Architecture
 
-- `opd/main.py` — FastAPI 应用入口 + CLI (`opd serve`)
-- `opd/config.py` — 从 `opd.yaml` 加载配置
-- `opd/engine/orchestrator.py` — **核心文件**，编排所有流程
-- `opd/engine/state_machine.py` — Round 状态转换规则
-- `opd/engine/context.py` — 构建 AI prompt
-- `opd/db/models.py` — 数据模型 (Project, Story, Round, AIMessage 等)
-- `opd/db/session.py` — 异步 DB session (`get_db()` generator)
-- `opd/api/stories.py` — Story 生命周期 API
-- `opd/api/projects.py` — 项目 CRUD API
-- `opd/web/routes.py` — Web 页面路由，构建模板上下文
-- `opd/web/templates/story_detail.html` — **最复杂的模板**，Story 详情页
-- `opd/providers/` — Provider 抽象层，所有外部依赖通过接口隔离
+### Request Flow
 
-## 关键设计模式
+HTTP requests → FastAPI routers (`opd/api/`) → `Orchestrator` (singleton via `opd/api/deps.py`) → Providers + DB. Web UI pages go through `opd/web/routes.py` which builds template context and renders Jinja2 templates.
 
-### Provider 抽象
+### Core Engine (`opd/engine/`)
 
-所有外部依赖通过 `Provider` 基类抽象，通过 `ProviderRegistry` 工厂加载。配置在 `opd.yaml` 中切换 `type` 即可替换实现。已实现: ai/claude_code, scm/github, notification/web, requirement/local, document/local。
+- **`orchestrator.py`** — The central file. Coordinates providers, state machine, and DB to drive a Story through its lifecycle. Long-running AI operations run as background `asyncio.Task`s tracked in `_running_tasks` dict. The `_run_ai_background()` method supports `pre_start` (clone/branch) and `post_complete` (commit/push/create PR) callbacks.
+- **`state_machine.py`** — Round status transitions defined in `VALID_TRANSITIONS` dict. Flow: `created → clarifying → planning → coding → pr_created → reviewing ↔ revising → testing → done`.
+- **`context.py`** — Builds AI prompts (system prompt, coding prompt, plan prompt, revision prompt).
 
-### 后台任务
+### Provider System (`opd/providers/`)
 
-AI 编码/修改等耗时操作通过 `asyncio.create_task()` 在后台运行，用 `_running_tasks` dict 跟踪。`_run_ai_background()` 是核心方法，支持 `pre_start`（clone/branch）和 `post_complete`（commit/push/create PR）回调。
+All external dependencies are abstracted through `Provider` base class (`base.py`). `ProviderRegistry` (`registry.py`) uses lazy-import factory pattern — built-in providers are stored as dotted-path strings in `_BUILTIN_PROVIDERS` and only imported on first use. To add a new provider: implement the base class, register in `_BUILTIN_PROVIDERS`, configure `type` in `opd.yaml`.
 
-### DB Session 注意事项
+Current providers: `ai/claude_code`, `scm/github`, `notification/web`, `requirement/local`, `document/local`.
 
-`get_db()` 是 async generator，`yield session` 后自动 commit。**在 `async for db in get_db()` 内部 `return` 会导致 commit 被跳过**，需要保存错误消息时必须用独立的 `get_db()` session。
+### Dependency Injection
 
-### 状态机
+The `Orchestrator` is a singleton initialized during app lifespan (`main.py:lifespan`). API routes get it via `Depends(get_orchestrator)` and DB sessions via `Depends(get_session)` — both defined in `opd/api/deps.py`.
 
-Round 状态流转: `created → clarifying → planning → coding → pr_created → reviewing ↔ revising → testing → done`。转换规则在 `state_machine.py` 的 `VALID_TRANSITIONS` dict 中定义。
+### DB Session Pitfall
 
-## 配置文件
+`get_db()` is an async generator that auto-commits after `yield`. **Using `return` inside `async for db in get_db()` skips the commit.** When you need to persist data (e.g., error messages) in error paths, use a separate `get_db()` session block.
 
-- `opd.yaml` — 主配置（服务器、Provider、workspace）
-- `.env` — 环境变量（GITHUB_TOKEN, ANTHROPIC_API_KEY）
-- `opd.yaml.example` / `.env.example` — 配置模板
+### Testing
+
+Tests use `pytest-asyncio` with `asyncio_mode = "auto"`. Fixtures in `tests/conftest.py` provide mock domain objects (`SimpleNamespace`-based) and FastAPI test clients (sync via `TestClient`, async via `httpx.AsyncClient`). No real DB required for unit tests.
+
+## Configuration
+
+- `opd.yaml` — Main config (server, providers, workspace). Supports `${ENV_VAR}` interpolation.
+- `.env` — Environment variables (GITHUB_TOKEN, ANTHROPIC_API_KEY). Loaded by `python-dotenv` at import time in `main.py`.
+- Ruff: `line-length = 100`, `target-version = "py311"`.

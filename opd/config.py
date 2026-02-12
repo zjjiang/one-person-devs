@@ -29,6 +29,13 @@ class WorkspaceConfig(BaseModel):
     base_dir: str = "./workspace"
 
 
+class LoggingConfig(BaseModel):
+    dir: str = "./logs"
+    level: str = "INFO"
+    max_bytes: int = 10 * 1024 * 1024  # 10MB per file
+    backup_count: int = 5
+
+
 class ProviderConfig(BaseModel):
     type: str = ""
     config: dict[str, Any] = {}
@@ -48,6 +55,7 @@ class OPDConfig(BaseModel):
     server: ServerConfig = ServerConfig()
     database: DatabaseConfig = DatabaseConfig()
     workspace: WorkspaceConfig = WorkspaceConfig()
+    logging: LoggingConfig = LoggingConfig()
     providers: ProvidersConfig = ProvidersConfig()
 
     @classmethod

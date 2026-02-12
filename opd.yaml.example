@@ -9,6 +9,12 @@ server:
 workspace:
   base_dir: "./workspace"
 
+logging:
+  dir: "./logs"              # log files: opd.log + error.log
+  level: "INFO"              # DEBUG | INFO | WARNING | ERROR
+  max_bytes: 10485760        # 10MB per file
+  backup_count: 5            # rotated file count
+
 providers:
   requirement:
     type: local             # local | notion | icafe

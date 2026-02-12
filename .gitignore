@@ -19,6 +19,7 @@ env/
 *.swo
 *~
 workspace/
+logs/
 opd.yaml
 .pytest_cache/
 .coverage

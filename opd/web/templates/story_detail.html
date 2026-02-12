@@ -210,43 +210,18 @@
                 <strong>⚠ 后台任务已中断</strong>（可能因服务器重启）。请回退到规划阶段重新开始编码。
             </div>
             {{ task_status_bar() }}
-            {% if coding_msg_count > 0 %}
-            <div style="margin-top:12px; padding:10px 14px; background:var(--bg-secondary, #f8fafc); border-radius:6px; font-size:0.85rem;">
-                <div style="color:var(--text-muted);">已收到 {{ coding_msg_count }} 条 AI 消息</div>
-                {% if latest_activity %}
-                <div style="margin-top:6px; color:var(--text-primary);">{{ latest_activity }}</div>
-                {% endif %}
+            <div id="stream-stats" style="margin-top:12px; padding:10px 14px; background:var(--bg-secondary, #f8fafc); border-radius:6px; font-size:0.85rem;">
+                <div style="color:var(--text-muted);">已收到 <span id="stream-msg-count">{{ coding_msg_count or 0 }}</span> 条 AI 消息</div>
+                <div id="stream-latest" style="margin-top:6px; color:var(--text-primary);">{% if latest_activity %}{{ latest_activity }}{% endif %}</div>
             </div>
-            {% endif %}
-            <div style="margin-top:12px;">
-                <button class="btn btn-secondary btn-sm" onclick="toggleAILog()" style="font-size:0.8rem;">查看 AI 交互日志</button>
-            </div>
-            <div id="ai-log-panel" style="display:none; margin-top:8px; max-height:400px; overflow-y:auto; background:var(--bg-secondary, #f8fafc); border:1px solid var(--border); border-radius:6px; padding:10px; font-size:0.8rem; font-family:monospace;">
-                <div id="ai-log-list" style="color:var(--text-muted);">加载中...</div>
+            <div id="ai-log-panel" style="margin-top:8px; min-height:200px; max-height:500px; overflow-y:auto; background:#1e1e2e; border:1px solid var(--border); border-radius:6px; padding:12px; font-size:0.8rem; font-family:'SF Mono',Monaco,Consolas,monospace;">
+                <div id="ai-log-list" style="color:#cdd6f4;"><span style="color:#6c7086;">连接中...</span></div>
             </div>
             <div class="btn-group" style="margin-top:12px;">
                 <button class="btn btn-danger btn-sm" onclick="stopTask()">紧急停止</button>
                 <button class="btn btn-secondary btn-sm" onclick="resetToPlanning()">回退到规划阶段</button>
             </div>
-            <script>
-            (function() {
-                fetch('/api/stories/' + STORY_ID + '/task-status')
-                    .then(function(r) { return r.json(); })
-                    .then(function(d) {
-                        if (!d.running) {
-                            document.getElementById('coding-status-hint').style.display = 'none';
-                            document.getElementById('coding-orphan-warning').style.display = 'block';
-                            // One more refresh to pick up any error messages
-                            setTimeout(function(){ location.reload(); }, 5000);
-                        } else {
-                            setTimeout(function(){ location.reload(); }, 8000);
-                        }
-                    })
-                    .catch(function() {
-                        setTimeout(function(){ location.reload(); }, 8000);
-                    });
-            })();
-            </script>
+            <script>document.addEventListener('DOMContentLoaded', function() { connectStream('coding'); });</script>
 
             {# ---- PR_CREATED / REVIEWING ---- #}
             {% elif cur in ('pr_created', 'reviewing') %}
@@ -288,39 +263,18 @@
                 <strong>⚠ 后台任务已中断</strong>（可能因服务器重启）。请回退到审查阶段重新操作。
             </div>
             {{ task_status_bar() }}
-            {% if latest_activity %}
-            <div style="margin-top:12px; padding:10px 14px; background:var(--bg-secondary, #f8fafc); border-radius:6px; font-size:0.85rem;">
-                <div style="color:var(--text-primary);">{{ latest_activity }}</div>
+            <div id="stream-stats" style="margin-top:12px; padding:10px 14px; background:var(--bg-secondary, #f8fafc); border-radius:6px; font-size:0.85rem;">
+                <div style="color:var(--text-muted);">已收到 <span id="stream-msg-count">0</span> 条 AI 消息</div>
+                <div id="stream-latest" style="margin-top:6px; color:var(--text-primary);">{% if latest_activity %}{{ latest_activity }}{% endif %}</div>
             </div>
-            {% endif %}
-            <div style="margin-top:12px;">
-                <button class="btn btn-secondary btn-sm" onclick="toggleAILog()" style="font-size:0.8rem;">查看 AI 交互日志</button>
-            </div>
-            <div id="ai-log-panel" style="display:none; margin-top:8px; max-height:400px; overflow-y:auto; background:var(--bg-secondary, #f8fafc); border:1px solid var(--border); border-radius:6px; padding:10px; font-size:0.8rem; font-family:monospace;">
-                <div id="ai-log-list" style="color:var(--text-muted);">加载中...</div>
+            <div id="ai-log-panel" style="margin-top:8px; min-height:200px; max-height:500px; overflow-y:auto; background:#1e1e2e; border:1px solid var(--border); border-radius:6px; padding:12px; font-size:0.8rem; font-family:'SF Mono',Monaco,Consolas,monospace;">
+                <div id="ai-log-list" style="color:#cdd6f4;"><span style="color:#6c7086;">连接中...</span></div>
             </div>
             <div class="btn-group" style="margin-top:12px;">
                 <button class="btn btn-danger btn-sm" onclick="stopTask()">紧急停止</button>
                 <button class="btn btn-secondary btn-sm" onclick="resetToReviewing()">回退到审查阶段</button>
             </div>
-            <script>
-            (function() {
-                fetch('/api/stories/' + STORY_ID + '/task-status')
-                    .then(function(r) { return r.json(); })
-                    .then(function(d) {
-                        if (!d.running) {
-                            document.getElementById('revising-status-hint').style.display = 'none';
-                            document.getElementById('revising-orphan-warning').style.display = 'block';
-                            setTimeout(function(){ location.reload(); }, 5000);
-                        } else {
-                            setTimeout(function(){ location.reload(); }, 8000);
-                        }
-                    })
-                    .catch(function() {
-                        setTimeout(function(){ location.reload(); }, 8000);
-                    });
-            })();
-            </script>
+            <script>document.addEventListener('DOMContentLoaded', function() { connectStream('revising'); });</script>
 
             {# ---- TESTING (Manual Verification) ---- #}
             {% elif cur == 'testing' %}
@@ -384,67 +338,6 @@
         </div>
     </div>
 </div>
-
-<!-- AI Activity Log (collapsed, human-readable) -->
-{% if ai_messages %}
-{% set readable_msgs = [] %}
-{% for msg in ai_messages %}
-    {% set role = msg.role.value if msg.role.value is defined else msg.role %}
-    {% set c = msg.content %}
-    {% set ts = msg.created_at.strftime('%Y-%m-%d %H:%M') %}
-    {% if '[Implementation Plan]' in c or '[Revised Plan]' in c %}
-        {% set _ = readable_msgs.append({'icon': 'plan', 'text': 'AI 生成了实施方案', 'time': ts}) %}
-    {% elif '[Plan Feedback]' in c %}
-        {% set _ = readable_msgs.append({'icon': 'user', 'text': '用户反馈：' ~ c.replace('[Plan Feedback] ', ''), 'time': ts}) %}
-    {% elif '[Revision Request]' in c %}
-        {% set _ = readable_msgs.append({'icon': 'user', 'text': '修改请求：' ~ c.replace('[Revision Request] ', '')[:200], 'time': ts}) %}
-    {% elif '[PR Created]' in c %}
-        {% set _ = readable_msgs.append({'icon': 'plan', 'text': c.replace('[PR Created] ', ''), 'time': ts}) %}
-    {% elif '[Code Pushed]' in c %}
-        {% set _ = readable_msgs.append({'icon': 'plan', 'text': c.replace('[Code Pushed] ', ''), 'time': ts}) %}
-    {% elif '[Task Started]' in c %}
-        {% set _ = readable_msgs.append({'icon': 'ai', 'text': c.replace('[Task Started] ', ''), 'time': ts}) %}
-    {% elif '[Stopped]' in c %}
-        {% set _ = readable_msgs.append({'icon': 'error', 'text': c.replace('[Stopped] ', ''), 'time': ts}) %}
-    {% elif '[CI Pipeline]' in c %}
-        {% set _ = readable_msgs.append({'icon': 'tool', 'text': '触发了 CI 流水线', 'time': ts}) %}
-    {% elif '[Error]' in c %}
-        {% set _ = readable_msgs.append({'icon': 'error', 'text': c, 'time': ts}) %}
-    {% elif role == 'tool' %}
-        {# skip raw tool JSON #}
-    {% elif role == 'assistant' and c|length < 500 %}
-        {% set _ = readable_msgs.append({'icon': 'ai', 'text': c[:200], 'time': ts}) %}
-    {% endif %}
-{% endfor %}
-{% if readable_msgs %}
-<div class="section">
-    <div class="card">
-        <div class="card-header">
-            <h2>活动记录</h2>
-        </div>
-        <div class="card-body">
-            <div style="display:flex; flex-direction:column; gap:8px;">
-                {% for m in readable_msgs %}
-                <div style="display:flex; align-items:flex-start; gap:8px; font-size:0.85rem; padding:6px 0; border-bottom:1px solid var(--border);">
-                    {% if m.icon == 'plan' %}
-                    <span style="color:var(--accent); flex-shrink:0;">&#9679;</span>
-                    {% elif m.icon == 'user' %}
-                    <span style="color:var(--success); flex-shrink:0;">&#9679;</span>
-                    {% elif m.icon == 'error' %}
-                    <span style="color:var(--danger); flex-shrink:0;">&#9679;</span>
-                    {% else %}
-                    <span style="color:var(--text-muted); flex-shrink:0;">&#9679;</span>
-                    {% endif %}
-                    <span style="flex:1;">{{ m.text }}</span>
-                    <span style="color:var(--text-muted); flex-shrink:0; font-size:0.75rem; white-space:nowrap;">{{ m.time }}</span>
-                </div>
-                {% endfor %}
-            </div>
-        </div>
-    </div>
-</div>
-{% endif %}
-{% endif %}
 
 <!-- Rounds history (only show if multiple rounds) -->
 {% if story.rounds|length > 1 %}
@@ -539,6 +432,8 @@
 <script>
 var STORY_ID = "{{ story.id }}";
 var _autoRefreshTimer = null;
+var _streamSource = null;
+var _streamMsgCount = 0;
 
 function startAutoRefresh(interval) {
     if (_autoRefreshTimer) clearInterval(_autoRefreshTimer);
@@ -548,6 +443,150 @@ function startAutoRefresh(interval) {
 function stopAutoRefresh() {
     if (_autoRefreshTimer) { clearInterval(_autoRefreshTimer); _autoRefreshTimer = null; }
 }
+
+/* ------------------------------------------------------------------ */
+/* Real-time SSE streaming for coding/revising states                 */
+/* ------------------------------------------------------------------ */
+
+function connectStream(phase) {
+    var logList = document.getElementById('ai-log-list');
+    var countEl = document.getElementById('stream-msg-count');
+    var latestEl = document.getElementById('stream-latest');
+    var statusHint = document.getElementById(phase + '-status-hint');
+    var orphanWarn = document.getElementById(phase + '-orphan-warning');
+    _streamMsgCount = 0;
+
+    if (logList) logList.innerHTML = '';
+
+    _streamSource = new EventSource('/api/stories/' + STORY_ID + '/stream');
+    var historyDone = false;
+
+    _streamSource.onmessage = function(ev) {
+        var data = JSON.parse(ev.data);
+
+        if (data.type === 'history_end') {
+            historyDone = true;
+            if (logList && _streamMsgCount > 0) {
+                var sep = document.createElement('div');
+                sep.style.cssText = 'border-top:1px dashed #585b70; margin:8px 0; padding-top:4px; color:#6c7086; font-size:0.75rem;';
+                sep.textContent = '— 以上为历史消息，以下为实时消息 —';
+                logList.appendChild(sep);
+                scrollLog();
+            }
+            return;
+        }
+
+        if (data.type === 'message') {
+            _streamMsgCount++;
+            if (countEl) countEl.textContent = _streamMsgCount;
+            appendLogEntry(logList, data);
+            // Update latest activity summary
+            if (latestEl && data.role === 'assistant') {
+                var preview = data.content.length > 120 ? data.content.substring(0, 120) + '...' : data.content;
+                latestEl.textContent = preview;
+            }
+            if (latestEl && data.role === 'tool') {
+                try {
+                    var toolData = JSON.parse(data.content);
+                    latestEl.textContent = '🔧 ' + (toolData.tool || 'tool_use');
+                } catch(e) {}
+            }
+            return;
+        }
+
+        if (data.type === 'done') {
+            _streamSource.close();
+            // Task finished — check if it was an orphan (no live messages after history)
+            if (!historyDone) {
+                // Stream ended before history_end — shouldn't happen, just reload
+                setTimeout(function() { location.reload(); }, 1000);
+                return;
+            }
+            // Task completed or was never running — detect orphan
+            if (_streamMsgCount === 0 && orphanWarn && statusHint) {
+                statusHint.style.display = 'none';
+                orphanWarn.style.display = 'block';
+            } else {
+                // Normal completion — reload to pick up new state
+                setTimeout(function() { location.reload(); }, 1500);
+            }
+            return;
+        }
+
+        if (data.type === 'status') {
+            _streamSource.close();
+            // State changed — reload to render new UI
+            setTimeout(function() { location.reload(); }, 1000);
+            return;
+        }
+
+        if (data.type === 'error') {
+            appendLogEntry(logList, {role: 'error', content: data.message || 'Unknown error'});
+            return;
+        }
+    };
+
+    _streamSource.onerror = function() {
+        _streamSource.close();
+        // Connection lost — fall back to polling
+        setTimeout(function() { location.reload(); }, 5000);
+    };
+}
+
+function appendLogEntry(container, data) {
+    if (!container) return;
+    var div = document.createElement('div');
+    div.style.cssText = 'padding:4px 0; border-bottom:1px solid #313244; line-height:1.5;';
+
+    var role = data.role;
+    var content = data.content || '';
+    var roleLabel, roleColor;
+
+    if (role === 'assistant') {
+        roleLabel = 'AI';
+        roleColor = '#89b4fa';
+        // Truncate very long messages
+        if (content.length > 500) content = content.substring(0, 500) + '...';
+    } else if (role === 'tool') {
+        roleLabel = '🔧';
+        roleColor = '#a6e3a1';
+        // Parse tool JSON for nicer display
+        try {
+            var toolData = JSON.parse(content);
+            content = toolData.tool;
+            if (toolData.input) {
+                var inputStr = typeof toolData.input === 'string' ? toolData.input : JSON.stringify(toolData.input);
+                if (inputStr.length > 200) inputStr = inputStr.substring(0, 200) + '...';
+                content += ' → ' + inputStr;
+            }
+        } catch(e) {
+            if (content.length > 300) content = content.substring(0, 300) + '...';
+        }
+    } else if (role === 'user') {
+        roleLabel = '用户';
+        roleColor = '#f9e2af';
+    } else if (role === 'error') {
+        roleLabel = '错误';
+        roleColor = '#f38ba8';
+    } else {
+        roleLabel = role;
+        roleColor = '#cdd6f4';
+    }
+
+    div.innerHTML = '<span style="color:' + roleColor + '; font-weight:600; margin-right:8px;">[' + roleLabel + ']</span>'
+        + '<span style="color:#cdd6f4;">' + escapeHtml(content) + '</span>';
+    container.appendChild(div);
+    scrollLog();
+}
+
+function scrollLog() {
+    var panel = document.getElementById('ai-log-panel');
+    if (panel) panel.scrollTop = panel.scrollHeight;
+}
+
+/* ------------------------------------------------------------------ */
+/* Original functions (unchanged)                                      */
+/* ------------------------------------------------------------------ */
 
 async function submitAnswers() {
     var fields = document.querySelectorAll('.answer-field');
@@ -694,6 +733,7 @@ async function resetToPlanning() {
 async function stopTask() {
     if (!confirm('确定紧急停止当前 AI 任务？')) return;
     try {
+        if (_streamSource) _streamSource.close();
         await apiCall('/api/stories/' + STORY_ID + '/stop', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
@@ -751,22 +791,15 @@ async function submitNewRound() {
 function refreshLogs() {
     var logList = document.getElementById('ai-log-list');
     if (!logList) return;
-    logList.innerHTML = '<div style="color:var(--text-muted);">加载中...</div>';
+    logList.innerHTML = '';
     var es = new EventSource('/api/stories/' + STORY_ID + '/logs');
     var messages = [];
     es.onmessage = function(event) {
         var data = JSON.parse(event.data);
-        if (data.type === 'done') { es.close(); if (messages.length === 0) logList.innerHTML = '<div style="color:var(--text-muted);">暂无消息</div>'; return; }
-        if (data.type === 'info') { logList.innerHTML = '<div style="color:var(--text-muted);">' + data.message + '</div>'; es.close(); return; }
+        if (data.type === 'done') { es.close(); if (messages.length === 0) logList.innerHTML = '<div style="color:#6c7086;">暂无消息</div>'; return; }
+        if (data.type === 'info') { logList.innerHTML = '<div style="color:#6c7086;">' + data.message + '</div>'; es.close(); return; }
         messages.push(data);
-        if (messages.length === 1) logList.innerHTML = '';
-        var roleMap = {assistant:'AI', user:'用户', tool:'工具'};
-        var div = document.createElement('div');
-        div.className = 'ai-log-item role-' + data.role;
-        var content = data.content.length > 300 ? data.content.substring(0, 300) + '...' : data.content;
-        div.innerHTML = '<span class="ai-log-role">' + (roleMap[data.role]||data.role) + '</span>' + escapeHtml(content);
-        logList.appendChild(div);
-        logList.scrollTop = logList.scrollHeight;
+        appendLogEntry(logList, data);
     };
     es.onerror = function() { es.close(); };
 }

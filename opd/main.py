@@ -199,10 +199,7 @@ def _run_serve(args: argparse.Namespace) -> None:
     host = args.host or config.server.host
     port = args.port or config.server.port
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    )
+    _setup_logging(config.logging)
 
     logger.info("Starting OPD on %s:%d", host, port)
     uvicorn.run(
@@ -211,6 +208,53 @@ def _run_serve(args: argparse.Namespace) -> None:
         port=port,
         reload=args.reload,
     )
+
+
+def _setup_logging(log_config) -> None:
+    """Configure logging with console + file handlers.
+
+    Writes to ``<log_dir>/opd.log`` (all levels) and
+    ``<log_dir>/error.log`` (ERROR+ only), with rotation.
+    """
+    from logging.handlers import RotatingFileHandler
+
+    log_dir = Path(log_config.dir).resolve()
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    level = getattr(logging, log_config.level.upper(), logging.INFO)
+    fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+
+    # Root logger
+    root = logging.getLogger()
+    root.setLevel(level)
+
+    # Console handler
+    console = logging.StreamHandler()
+    console.setLevel(level)
+    console.setFormatter(fmt)
+    root.addHandler(console)
+
+    # Main log file (all levels)
+    main_handler = RotatingFileHandler(
+        log_dir / "opd.log",
+        maxBytes=log_config.max_bytes,
+        backupCount=log_config.backup_count,
+        encoding="utf-8",
+    )
+    main_handler.setLevel(level)
+    main_handler.setFormatter(fmt)
+    root.addHandler(main_handler)
+
+    # Error log file (ERROR+ only)
+    error_handler = RotatingFileHandler(
+        log_dir / "error.log",
+        maxBytes=log_config.max_bytes,
+        backupCount=log_config.backup_count,
+        encoding="utf-8",
+    )
+    error_handler.setLevel(logging.ERROR)
+    error_handler.setFormatter(fmt)
+    root.addHandler(error_handler)
 
 
 if __name__ == "__main__":
