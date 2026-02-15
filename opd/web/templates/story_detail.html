@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block title %}OPD - {{ story.title }}{% endblock %}
+{% block content %}
+{% set stages = ['preparing', 'clarifying', 'planning', 'designing', 'coding', 'verifying', 'done'] %}
+{% set stage_labels = {'preparing': '准备', 'clarifying': '澄清', 'planning': '规划', 'designing': '设计', 'coding': '编码', 'verifying': '验证', 'done': '完成'} %}
+{% set current = story.status.value %}
+{% set current_idx = stages.index(current) if current in stages else 0 %}
+
+<div class="page-header">
+  <h1>{{ story.title }}</h1>
+  <a href="/projects/{{ story.project.id }}" class="btn btn-secondary">返回项目</a>
+</div>
+
+<!-- Progress Stepper -->
+<div class="stepper">
+  {% for stage in stages %}
+  {% set idx = loop.index0 %}
+  <div class="step {% if idx < current_idx %}step-done{% elif idx == current_idx %}step-active{% endif %}">
+    <div class="step-circle">{{ loop.index }}</div>
+    <div class="step-label">{{ stage_labels[stage] }}</div>
+  </div>
+  {% if not loop.last %}<div class="step-line {% if idx < current_idx %}step-line-done{% endif %}"></div>{% endif %}
+  {% endfor %}
+</div>
+
+<!-- Stage Output -->
+<div class="detail-section">
+  <h2>阶段输出</h2>
+  {% if story.prd %}
+  <div class="output-block">
+    <h3>PRD</h3>
+    <pre class="output-content">{{ story.prd }}</pre>
+  </div>
+  {% endif %}
+  {% if story.technical_design %}
+  <div class="output-block">
+    <h3>技术设计</h3>
+    <pre class="output-content">{{ story.technical_design }}</pre>
+  </div>
+  {% endif %}
+  {% if story.detailed_design %}
+  <div class="output-block">
+    <h3>详细设计</h3>
+    <pre class="output-content">{{ story.detailed_design }}</pre>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Clarifications -->
+{% if story.clarifications %}
+<div class="detail-section">
+  <h2>需求澄清</h2>
+  {% for c in story.clarifications %}
+  <div class="qa-item">
+    <p class="qa-question">Q: {{ c.question }}</p>
+    <p class="qa-answer">A: {{ c.answer or '待回答' }}</p>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- Tasks -->
+{% if story.tasks %}
+<div class="detail-section">
+  <h2>任务列表</h2>
+  <table class="table">
+    <thead><tr><th>#</th><th>任务</th><th>描述</th></tr></thead>
+    <tbody>
+      {% for task in story.tasks | sort(attribute='order') %}
+      <tr>
+        <td>{{ task.order }}</td>
+        <td>{{ task.title }}</td>
+        <td>{{ task.description }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<!-- Rounds -->
+{% if story.rounds %}
+<div class="detail-section">
+  <h2>迭代轮次</h2>
+  {% for round in story.rounds %}
+  <div class="round-item">
+    <span class="badge badge-status-{{ 'coding' if round.status.value == 'active' else 'done' }}">
+      Round {{ round.round_number }} - {{ round.type.value }}
+    </span>
+    {% if round.branch_name %}
+    <span class="round-branch">{{ round.branch_name }}</span>
+    {% endif %}
+    {% for pr in round.pull_requests %}
+    <a href="{{ pr.pr_url }}" target="_blank" class="btn btn-sm">PR #{{ pr.pr_number }}</a>
+    {% endfor %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- Action Buttons -->
+<div class="action-bar">
+  {% if current in ('preparing', 'clarifying', 'planning', 'designing') %}
+  <button class="btn btn-primary" onclick="confirmStage()">确认</button>
+  {% elif current == 'verifying' %}
+  <button class="btn btn-primary" onclick="confirmStage()">通过</button>
+  <button class="btn btn-warning" onclick="iterateStory()">迭代修改</button>
+  <button class="btn btn-danger" onclick="restartStory()">重新开始</button>
+  {% elif current == 'coding' %}
+  <button class="btn btn-danger" onclick="stopStory()">停止</button>
+  {% endif %}
+</div>
+
+<!-- AI Console -->
+<div class="detail-section">
+  <h2>AI 控制台</h2>
+  <div id="ai-console" class="ai-console"></div>
+</div>
+
+<script>
+const storyId = {{ story.id }};
+
+async function apiPost(path) {
+  const res = await fetch(path, {method: 'POST'});
+  const data = await res.json();
+  if (data.status || data.id) location.reload();
+  else alert(data.error || '操作失败');
+}
+
+function confirmStage() { apiPost('/api/stories/' + storyId + '/confirm'); }
+function iterateStory() { apiPost('/api/stories/' + storyId + '/iterate'); }
+function restartStory() { apiPost('/api/stories/' + storyId + '/restart'); }
+function stopStory() { apiPost('/api/stories/' + storyId + '/stop'); }
+
+// SSE streaming
+const console_ = document.getElementById('ai-console');
+function appendMessage(role, content) {
+  const div = document.createElement('div');
+  div.className = 'console-msg console-msg-' + role;
+  div.textContent = content;
+  console_.appendChild(div);
+  console_.scrollTop = console_.scrollHeight;
+}
+
+const evtSource = new EventSource('/api/stories/' + storyId + '/stream');
+evtSource.onmessage = (e) => {
+  try {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'done') {
+      appendMessage('system', '-- 完成 --');
+      evtSource.close();
+      location.reload();
+    } else if (msg.type === 'error') {
+      appendMessage('error', msg.content || '发生错误');
+      evtSource.close();
+    } else {
+      appendMessage(msg.type || 'assistant', msg.content || '');
+    }
+  } catch (_) {}
+};
+evtSource.onerror = () => { evtSource.close(); };
+</script>
+{% endblock %}

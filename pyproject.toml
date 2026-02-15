@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "one-person-devs"
-version = "0.1.0"
+version = "2.0.0"
 description = "OPD - AI-powered engineering workflow orchestration platform"
 requires-python = ">=3.11"
 dependencies = [
@@ -21,6 +21,7 @@ dependencies = [
     "gitpython>=3.1.0",
     "pygithub>=2.0.0",
     "httpx>=0.28.0",
+    "python-dotenv>=1.0.0",
 ]
 
 [project.optional-dependencies]
@@ -31,7 +32,7 @@ dev = [
     "ruff>=0.8.0",
 ]
 ai = [
-    "claude-agent-sdk>=0.1.0",
+    "claude-code-sdk>=0.0.20",
 ]
 
 [project.scripts]

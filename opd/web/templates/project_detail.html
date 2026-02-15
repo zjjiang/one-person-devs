@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}OPD - {{ project.name }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>{{ project.name }}</h1>
+  <a href="/projects/{{ project.id }}/stories/new" class="btn btn-primary">创建 Story</a>
+</div>
+
+<div class="detail-section">
+  <h2>项目信息</h2>
+  <dl class="detail-list">
+    <dt>仓库</dt>
+    <dd><a href="{{ project.repo_url }}" target="_blank">{{ project.repo_url }}</a></dd>
+    {% if project.description %}
+    <dt>描述</dt>
+    <dd>{{ project.description }}</dd>
+    {% endif %}
+    {% if project.tech_stack %}
+    <dt>技术栈</dt>
+    <dd>{{ project.tech_stack }}</dd>
+    {% endif %}
+  </dl>
+</div>
+
+{% if project.rules %}
+<div class="detail-section">
+  <h2>规则</h2>
+  <table class="table">
+    <thead><tr><th>类别</th><th>内容</th><th>状态</th></tr></thead>
+    <tbody>
+      {% for rule in project.rules %}
+      <tr>
+        <td><span class="badge">{{ rule.category.value }}</span></td>
+        <td>{{ rule.content }}</td>
+        <td>{{ "启用" if rule.enabled else "禁用" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if project.skills %}
+<div class="detail-section">
+  <h2>技能</h2>
+  <table class="table">
+    <thead><tr><th>名称</th><th>触发方式</th></tr></thead>
+    <tbody>
+      {% for skill in project.skills %}
+      <tr>
+        <td>{{ skill.name }}</td>
+        <td><span class="badge">{{ skill.trigger.value }}</span></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<div class="detail-section">
+  <h2>Stories</h2>
+  {% if project.stories %}
+  <div class="card-grid">
+    {% for story in project.stories %}
+    <a href="/stories/{{ story.id }}" class="card card-link">
+      <h3 class="card-title">{{ story.title }}</h3>
+      <span class="badge badge-status-{{ story.status.value }}">{{ story.status.value }}</span>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="empty-state">暂无 Story</p>
+  {% endif %}
+</div>
+{% endblock %}
