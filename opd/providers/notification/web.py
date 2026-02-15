@@ -14,6 +14,8 @@ logger = logging.getLogger(__name__)
 class WebNotificationProvider(NotificationProvider):
     """Logs notifications via Python logging."""
 
+    CONFIG_SCHEMA = []
+
     async def notify(self, event: dict) -> None:
         logger.info("Notification: %s", event)
 

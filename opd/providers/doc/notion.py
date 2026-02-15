@@ -10,6 +10,10 @@ from .base import DocProvider
 class NotionDocProvider(DocProvider):
     """Notion document provider (stub)."""
 
+    CONFIG_SCHEMA = [
+        {"name": "token", "label": "Notion Token", "type": "password", "required": True},
+    ]
+
     async def get_document(self, doc_id: str) -> str:
         raise NotImplementedError
 

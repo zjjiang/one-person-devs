@@ -15,6 +15,10 @@ logger = logging.getLogger(__name__)
 class GitHubProvider(SCMProvider):
     """SCM provider using GitHub (PyGithub + GitPython)."""
 
+    CONFIG_SCHEMA = [
+        {"name": "token", "label": "GitHub Token", "type": "password", "required": True},
+    ]
+
     def __init__(self, config: dict | None = None):
         super().__init__(config)
         self._token = self.config.get("token") or os.environ.get("GITHUB_TOKEN", "")

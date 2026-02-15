@@ -12,6 +12,11 @@ from .base import DocProvider
 class LocalDocProvider(DocProvider):
     """Reads local markdown files from a configured base directory."""
 
+    CONFIG_SCHEMA = [
+        {"name": "base_dir", "label": "Base Directory", "type": "string",
+         "required": False, "default": "."},
+    ]
+
     @property
     def base_dir(self) -> Path:
         return Path(self.config.get("base_dir", "."))

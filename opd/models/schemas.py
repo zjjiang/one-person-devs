@@ -32,3 +32,14 @@ class CapabilityStatusResponse(BaseModel):
     name: str
     healthy: bool
     message: str = ""
+
+
+class SaveCapabilityConfigRequest(BaseModel):
+    enabled: bool = True
+    provider_override: str | None = None
+    config_override: dict | None = None
+
+
+class TestCapabilityRequest(BaseModel):
+    provider: str
+    config: dict

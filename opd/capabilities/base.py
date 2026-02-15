@@ -20,6 +20,11 @@ class HealthStatus:
 class Provider(ABC):
     """Base class for all provider implementations."""
 
+    # Subclasses declare their config schema as a list of field descriptors.
+    # Each entry: {"name": str, "label": str, "type": "string"|"password"|"select",
+    #              "required": bool, "default": ..., "options": [...]}
+    CONFIG_SCHEMA: list[dict] = []
+
     def __init__(self, config: dict | None = None):
         self.config = config or {}
 

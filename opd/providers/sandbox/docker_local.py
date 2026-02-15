@@ -10,6 +10,8 @@ from .base import SandboxProvider
 class DockerLocalProvider(SandboxProvider):
     """Local Docker sandbox provider (stub)."""
 
+    CONFIG_SCHEMA = []
+
     async def create_sandbox(self, config: dict) -> dict:
         raise NotImplementedError
 

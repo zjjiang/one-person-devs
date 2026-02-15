@@ -123,19 +123,30 @@ def create_app(config_path: str = "opd.yaml") -> FastAPI:
         }
 
     # API routers
+    from opd.api.capabilities import router as capabilities_router
     from opd.api.projects import router as projects_router
     from opd.api.stories import router as stories_router
     from opd.api.webhooks import router as webhooks_router
 
+    app.include_router(capabilities_router)
     app.include_router(projects_router)
     app.include_router(stories_router)
     app.include_router(webhooks_router)
 
-    # Web UI
-    from opd.web.routes import router as web_router
+    # SPA: serve frontend build if web/dist/ exists
+    spa_dir = Path("web/dist")
+    if spa_dir.is_dir():
+        from fastapi.responses import FileResponse
 
-    app.include_router(web_router)
-    app.mount("/static", StaticFiles(directory="opd/web/static"), name="static")
+        app.mount("/assets", StaticFiles(directory=str(spa_dir / "assets")), name="assets")
+
+        @app.get("/{full_path:path}")
+        async def spa_fallback(full_path: str):
+            # Serve index.html for all non-API routes (SPA history fallback)
+            file = spa_dir / full_path
+            if file.is_file():
+                return FileResponse(str(file))
+            return FileResponse(str(spa_dir / "index.html"))
 
     # ASGI middleware (added last = runs first)
     app.add_middleware(LoggingMiddleware)

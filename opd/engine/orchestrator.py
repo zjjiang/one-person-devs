@@ -49,40 +49,57 @@ class Orchestrator:
         """Advance a story to the next stage.
 
         Steps:
-        1. Preflight capability check
-        2. Validate preconditions
-        3. Execute stage
-        4. Validate output
-        5. Transition state
+        1. Build project-level registry (if overrides exist)
+        2. Preflight capability check
+        3. Validate preconditions
+        4. Execute stage
+        5. Validate output
+        6. Transition state
         """
         current_status = story.status if isinstance(story.status, str) else story.status.value
         stage = self._stages.get(current_status)
         if not stage:
             return StageResult(success=False, errors=[f"No stage handler for status: {current_status}"])
 
-        # 1. Preflight
-        preflight = await self._caps.preflight(
+        # 1. Build project-level registry if overrides exist
+        registry = self._caps
+        cap_configs = getattr(project, "capability_configs", None)
+        if cap_configs:
+            overrides = [
+                {
+                    "capability": c.capability,
+                    "enabled": c.enabled,
+                    "provider_override": c.provider_override,
+                    "config_override": c.config_override,
+                }
+                for c in cap_configs
+            ]
+            if overrides:
+                registry = await self._caps.with_project_overrides(overrides)
+
+        # 2. Preflight
+        preflight = await registry.preflight(
             stage.required_capabilities, stage.optional_capabilities
         )
         if not preflight.ok:
             return StageResult(success=False, errors=preflight.errors)
 
-        # 2. Preconditions
-        ctx = StageContext(story=story, project=project, round=round_, capabilities=self._caps)
+        # 3. Preconditions
+        ctx = StageContext(story=story, project=project, round=round_, capabilities=registry)
         precondition_errors = await stage.validate_preconditions(ctx)
         if precondition_errors:
             return StageResult(success=False, errors=precondition_errors)
 
-        # 3. Execute
+        # 4. Execute
         result = await stage.execute(ctx)
 
-        # 4. Output validation
+        # 5. Output validation
         if result.success:
             output_errors = await stage.validate_output(result)
             if output_errors:
                 return StageResult(success=False, errors=output_errors)
 
-        # 5. State transition
+        # 6. State transition
         if result.success and result.next_status:
             self._sm.transition(story, result.next_status)
 

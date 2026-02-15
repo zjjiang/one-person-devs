@@ -10,6 +10,8 @@ from .base import CIProvider
 class GitHubActionsProvider(CIProvider):
     """GitHub Actions CI provider (stub)."""
 
+    CONFIG_SCHEMA = []
+
     async def trigger_pipeline(self, repo_url: str, branch: str) -> dict:
         raise NotImplementedError
 

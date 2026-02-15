@@ -25,3 +25,4 @@ opd.yaml
 .coverage
 htmlcov/
 .ruff_cache/
+node_modules/
