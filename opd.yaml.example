@@ -1,0 +1,61 @@
+# OPD Configuration
+# Copy to opd.yaml and fill in your values.
+# Supports ${ENV_VAR} interpolation (loaded from .env).
+
+server:
+  host: "0.0.0.0"
+  port: 8765
+  reload: false
+
+database:
+  # SQLite (local dev)
+  url: "sqlite+aiosqlite:///opd.db"
+  # MySQL (production)
+  # url: "mysql+aiomysql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:3306/${DB_NAME}"
+
+workspace:
+  base_dir: "./workspace"
+
+logging:
+  level: "INFO"
+  dir: "./logs"
+
+# Capabilities: each key is a capability name, value specifies provider + config.
+# Stages declare which capabilities they require/optionally use.
+capabilities:
+  ai:
+    provider: claude_code
+    config:
+      model: "claude-sonnet-4-20250514"
+      max_tokens: 16384
+    health_check:
+      interval: 300
+      timeout: 10
+
+  scm:
+    provider: github
+    config:
+      token: "${GITHUB_TOKEN}"
+    health_check:
+      interval: 300
+      timeout: 10
+
+  # Optional capabilities (uncomment to enable)
+  # ci:
+  #   provider: github_actions
+  #   config:
+  #     token: "${GITHUB_TOKEN}"
+
+  # doc:
+  #   provider: local
+  #   config:
+  #     base_dir: "./docs"
+
+  # sandbox:
+  #   provider: docker_local
+  #   config:
+  #     image: "node:20"
+
+  notification:
+    provider: web
+    config: {}

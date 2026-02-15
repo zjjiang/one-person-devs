@@ -6,53 +6,29 @@ from pydantic import BaseModel
 
 
 class CreateProjectRequest(BaseModel):
-    """Request to create a new project."""
-
     name: str
     repo_url: str
     description: str = ""
+    tech_stack: str = ""
+    architecture: str = ""
 
 
 class CreateStoryRequest(BaseModel):
-    """Request to create a new story."""
-
-    project_id: int
     title: str
-    requirement: str
+    raw_input: str
+    feature_tag: str | None = None
 
 
-class AnswerRequest(BaseModel):
-    """Request to answer a clarification question."""
-
+class QAPair(BaseModel):
+    question: str
     answer: str
 
 
-class ProjectResponse(BaseModel):
-    """Project response model."""
-
-    id: int
-    name: str
-    repo_url: str
-    description: str = ""
-
-    model_config = {"from_attributes": True}
-
-
-class StoryResponse(BaseModel):
-    """Story response model."""
-
-    id: int
-    project_id: int
-    title: str
-    requirement: str
-    status: str
-
-    model_config = {"from_attributes": True}
+class AnswerRequest(BaseModel):
+    answers: list[QAPair]
 
 
 class CapabilityStatusResponse(BaseModel):
-    """Health status of a capability."""
-
     name: str
     healthy: bool
     message: str = ""

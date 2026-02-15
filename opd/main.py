@@ -10,7 +10,7 @@ from pathlib import Path
 
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -111,8 +111,7 @@ def create_app(config_path: str = "opd.yaml") -> FastAPI:
 
     # Health check
     @app.get("/api/health")
-    async def health():
-        orch = get_orchestrator()
+    async def health(orch: Orchestrator = Depends(get_orchestrator)):
         cap_names = list(config.capabilities.keys())
         health_results = await orch.capabilities.check_health(cap_names)
         return {
