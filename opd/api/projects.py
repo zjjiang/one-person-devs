@@ -22,6 +22,7 @@ async def create_project(req: CreateProjectRequest, db: AsyncSession = Depends(g
         description=req.description or "",
         tech_stack=req.tech_stack or "",
         architecture=req.architecture or "",
+        workspace_dir=req.workspace_dir or "",
     )
     db.add(project)
     await db.flush()
@@ -67,6 +68,7 @@ async def get_project(project_id: int, db: AsyncSession = Depends(get_db)):
         "description": project.description,
         "tech_stack": project.tech_stack,
         "architecture": project.architecture,
+        "workspace_dir": project.workspace_dir,
         "rules": [
             {"id": r.id, "category": r.category.value, "content": r.content, "enabled": r.enabled}
             for r in project.rules
@@ -95,4 +97,5 @@ async def update_project(
     project.description = req.description or ""
     project.tech_stack = req.tech_stack or ""
     project.architecture = req.architecture or ""
+    project.workspace_dir = req.workspace_dir or ""
     return {"id": project.id, "name": project.name}

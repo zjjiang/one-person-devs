@@ -11,6 +11,7 @@ class CreateProjectRequest(BaseModel):
     description: str = ""
     tech_stack: str = ""
     architecture: str = ""
+    workspace_dir: str = ""
 
 
 class CreateStoryRequest(BaseModel):

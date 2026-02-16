@@ -85,6 +85,7 @@ class Project(Base):
     description: Mapped[str] = mapped_column(Text, default="")
     tech_stack: Mapped[str] = mapped_column(Text, default="")
     architecture: Mapped[str] = mapped_column(Text, default="")
+    workspace_dir: Mapped[str] = mapped_column(String(500), default="")
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now()
     )

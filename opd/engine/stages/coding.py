@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from opd.db.models import StoryStatus
 from opd.engine.context import build_coding_prompt
@@ -31,9 +32,8 @@ class CodingStage(Stage):
             ctx.story, ctx.project, ctx.round,
         )
 
-        # Resolve working directory from SCM provider config or round branch
-        scm = ctx.capabilities.get("scm")
-        work_dir = scm.provider.config.get("work_dir", "") if scm else ""
+        # Resolve working directory: workspace.base_dir / project_name
+        work_dir = self._resolve_work_dir(ctx)
 
         collected: list[str] = []
         async for msg in ai.provider.code(system_prompt, user_prompt, work_dir):
@@ -45,6 +45,17 @@ class CodingStage(Stage):
             output={"messages": collected},
             next_status=StoryStatus.verifying,
         )
+
+    def _resolve_work_dir(self, ctx: StageContext) -> str:
+        """Resolve work directory from project's workspace_dir setting."""
+        workspace_dir = getattr(ctx.project, "workspace_dir", "") or ""
+        if not workspace_dir:
+            workspace_dir = "./workspace"
+
+        project_name = ctx.project.name.replace(" ", "_").replace("/", "_")
+        work_dir = str(Path(workspace_dir).resolve() / project_name)
+        Path(work_dir).mkdir(parents=True, exist_ok=True)
+        return work_dir
 
     async def validate_output(self, result: StageResult) -> list[str]:
         return []

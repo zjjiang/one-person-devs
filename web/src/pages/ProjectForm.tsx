@@ -19,7 +19,7 @@ export default function ProjectForm() {
   const onFinish = async (values: Record<string, string>) => {
     setLoading(true);
     try {
-      const data = { name: values.name, repo_url: values.repo_url, description: values.description, tech_stack: values.tech_stack, architecture: values.architecture };
+      const data = { name: values.name, repo_url: values.repo_url, description: values.description, tech_stack: values.tech_stack, architecture: values.architecture, workspace_dir: values.workspace_dir };
       if (isEdit) {
         await updateProject(Number(id), data);
         message.success('项目已更新');
@@ -56,6 +56,9 @@ export default function ProjectForm() {
           </Form.Item>
           <Form.Item name="architecture" label="架构说明">
             <Input.TextArea rows={3} />
+          </Form.Item>
+          <Form.Item name="workspace_dir" label="工作空间目录" tooltip="AI 编码时代码存放的目录，留空则默认 ./workspace">
+            <Input placeholder="./workspace" />
           </Form.Item>
           <Form.Item>
             <Button type="primary" htmlType="submit" loading={loading}>
