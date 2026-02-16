@@ -23,25 +23,18 @@ class ClaudeCodeProvider(AIProvider):
     """AI provider backed by Claude Code SDK. All methods stream via SSE."""
 
     CONFIG_SCHEMA = [
-        {"name": "api_key", "label": "API Key", "type": "password", "required": False},
-        {"name": "auth_token", "label": "Auth Token", "type": "password", "required": False},
         {"name": "base_url", "label": "Base URL", "type": "text", "required": False},
+        {"name": "auth_token", "label": "Auth Token", "type": "password", "required": True},
         {
             "name": "model", "label": "Model", "type": "select", "required": False,
             "default": "sonnet",
             "options": ["sonnet", "opus", "haiku"],
-        },
-        {
-            "name": "permission_mode", "label": "Permission Mode", "type": "select",
-            "required": False, "default": "bypassPermissions",
-            "options": ["bypassPermissions", "acceptEdits", "plan", "default"],
         },
     ]
 
     def __init__(self, config: dict | None = None):
         super().__init__(config)
         self._model = self.config.get("model", "sonnet")
-        self._permission_mode = self.config.get("permission_mode", "bypassPermissions")
 
     async def initialize(self):
         if not _HAS_SDK:
@@ -52,10 +45,9 @@ class ClaudeCodeProvider(AIProvider):
     async def health_check(self) -> HealthStatus:
         if not _HAS_SDK:
             return HealthStatus(healthy=False, message="claude-code-sdk not installed")
-        api_key = self.config.get("api_key") or os.environ.get("ANTHROPIC_API_KEY")
         auth_token = self.config.get("auth_token") or os.environ.get("ANTHROPIC_AUTH_TOKEN")
-        if not api_key and not auth_token:
-            return HealthStatus(healthy=False, message="API Key 或 Auth Token 至少配置一个")
+        if not auth_token:
+            return HealthStatus(healthy=False, message="Auth Token 未配置")
         return HealthStatus(healthy=True, message="Claude Code SDK available")
 
     async def cleanup(self):
@@ -66,9 +58,8 @@ class ClaudeCodeProvider(AIProvider):
         opts = {
             "system_prompt": system_prompt,
             "model": self._model,
+            "permission_mode": "bypassPermissions",
         }
-        if self._permission_mode:
-            opts["permission_mode"] = self._permission_mode
         if work_dir:
             opts["cwd"] = work_dir
         return ClaudeCodeOptions(**opts)
@@ -76,7 +67,6 @@ class ClaudeCodeProvider(AIProvider):
     def _apply_env(self) -> dict[str, str | None]:
         """Set config values as env vars for the SDK, return old values for restore."""
         mapping = {
-            "api_key": "ANTHROPIC_API_KEY",
             "auth_token": "ANTHROPIC_AUTH_TOKEN",
             "base_url": "ANTHROPIC_BASE_URL",
         }

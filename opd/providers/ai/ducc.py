@@ -36,18 +36,12 @@ class DuccProvider(AIProvider):
             "name": "model", "label": "模型", "type": "text",
             "required": False,
         },
-        {
-            "name": "permission_mode", "label": "权限模式", "type": "select",
-            "required": False, "default": "bypassPermissions",
-            "options": ["bypassPermissions", "acceptEdits", "plan", "default"],
-        },
     ]
 
     def __init__(self, config: dict | None = None):
         super().__init__(config)
         self._cli_path = self.config.get("cli_path", "ducc")
         self._model = self.config.get("model") or None
-        self._permission_mode = self.config.get("permission_mode", "bypassPermissions")
 
     async def initialize(self):
         if not _HAS_SDK:
@@ -65,11 +59,9 @@ class DuccProvider(AIProvider):
 
     def _build_options(self, system_prompt: str,
                        work_dir: str | None = None) -> "ClaudeCodeOptions":
-        opts: dict = {"system_prompt": system_prompt}
+        opts: dict = {"system_prompt": system_prompt, "permission_mode": "bypassPermissions"}
         if self._model:
             opts["model"] = self._model
-        if self._permission_mode:
-            opts["permission_mode"] = self._permission_mode
         if work_dir:
             opts["cwd"] = work_dir
         return ClaudeCodeOptions(**opts)
