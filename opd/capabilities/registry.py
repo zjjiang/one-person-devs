@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 _BUILTIN_PROVIDERS: dict[str, dict[str, str]] = {
     "ai": {
         "claude_code": "opd.providers.ai.claude_code:ClaudeCodeProvider",
+        "ducc": "opd.providers.ai.ducc:DuccProvider",
     },
     "scm": {
         "github": "opd.providers.scm.github:GitHubProvider",

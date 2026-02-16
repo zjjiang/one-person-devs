@@ -1,9 +1,9 @@
-"""Claude Code AI Provider using claude-code-sdk."""
+"""Ducc AI Provider — uses claude-code-sdk with custom CLI binary."""
 
 from __future__ import annotations
 
 import logging
-import os
+import shutil
 from collections.abc import AsyncIterator
 
 from opd.capabilities.base import HealthStatus
@@ -13,26 +13,31 @@ logger = logging.getLogger(__name__)
 
 try:
     from claude_code_sdk import ClaudeCodeOptions, query
+    from claude_code_sdk._internal.transport.subprocess_cli import SubprocessCLITransport
 
     _HAS_SDK = True
 except ImportError:
     _HAS_SDK = False
 
 
-class ClaudeCodeProvider(AIProvider):
-    """AI provider backed by Claude Code SDK. All methods stream via SSE."""
+class DuccProvider(AIProvider):
+    """AI provider using ducc CLI (compatible with Claude Code interface).
+
+    Auth is handled externally — user runs `ducc` once in terminal,
+    scans QR code via 如流, and the token is cached locally.
+    """
 
     CONFIG_SCHEMA = [
-        {"name": "api_key", "label": "API Key", "type": "password", "required": False},
-        {"name": "auth_token", "label": "Auth Token", "type": "password", "required": False},
-        {"name": "base_url", "label": "Base URL", "type": "text", "required": False},
         {
-            "name": "model", "label": "Model", "type": "select", "required": False,
-            "default": "sonnet",
-            "options": ["sonnet", "opus", "haiku"],
+            "name": "cli_path", "label": "CLI 路径", "type": "text",
+            "required": False, "default": "ducc",
         },
         {
-            "name": "permission_mode", "label": "Permission Mode", "type": "select",
+            "name": "model", "label": "模型", "type": "text",
+            "required": False,
+        },
+        {
+            "name": "permission_mode", "label": "权限模式", "type": "select",
             "required": False, "default": "bypassPermissions",
             "options": ["bypassPermissions", "acceptEdits", "plan", "default"],
         },
@@ -40,73 +45,47 @@ class ClaudeCodeProvider(AIProvider):
 
     def __init__(self, config: dict | None = None):
         super().__init__(config)
-        self._model = self.config.get("model", "sonnet")
+        self._cli_path = self.config.get("cli_path", "ducc")
+        self._model = self.config.get("model") or None
         self._permission_mode = self.config.get("permission_mode", "bypassPermissions")
 
     async def initialize(self):
         if not _HAS_SDK:
-            logger.warning(
-                "claude-code-sdk not installed. Install with: uv sync --extra ai"
-            )
+            logger.warning("claude-code-sdk not installed (required for ducc provider)")
 
     async def health_check(self) -> HealthStatus:
         if not _HAS_SDK:
-            return HealthStatus(healthy=False, message="claude-code-sdk not installed")
-        api_key = self.config.get("api_key") or os.environ.get("ANTHROPIC_API_KEY")
-        auth_token = self.config.get("auth_token") or os.environ.get("ANTHROPIC_AUTH_TOKEN")
-        if not api_key and not auth_token:
-            return HealthStatus(healthy=False, message="API Key 或 Auth Token 至少配置一个")
-        return HealthStatus(healthy=True, message="Claude Code SDK available")
+            return HealthStatus(healthy=False, message="claude-code-sdk 未安装")
+        if not shutil.which(self._cli_path):
+            return HealthStatus(healthy=False, message=f"未找到 {self._cli_path} 命令")
+        return HealthStatus(healthy=True, message=f"{self._cli_path} 可用")
 
     async def cleanup(self):
         pass
 
     def _build_options(self, system_prompt: str,
                        work_dir: str | None = None) -> "ClaudeCodeOptions":
-        opts = {
-            "system_prompt": system_prompt,
-            "model": self._model,
-        }
+        opts: dict = {"system_prompt": system_prompt}
+        if self._model:
+            opts["model"] = self._model
         if self._permission_mode:
             opts["permission_mode"] = self._permission_mode
         if work_dir:
             opts["cwd"] = work_dir
         return ClaudeCodeOptions(**opts)
 
-    def _apply_env(self) -> dict[str, str | None]:
-        """Set config values as env vars for the SDK, return old values for restore."""
-        mapping = {
-            "api_key": "ANTHROPIC_API_KEY",
-            "auth_token": "ANTHROPIC_AUTH_TOKEN",
-            "base_url": "ANTHROPIC_BASE_URL",
-        }
-        old = {}
-        for cfg_key, env_key in mapping.items():
-            val = self.config.get(cfg_key)
-            if val:
-                old[env_key] = os.environ.get(env_key)
-                os.environ[env_key] = val
-        return old
-
-    def _restore_env(self, old: dict[str, str | None]):
-        """Restore env vars to previous values."""
-        for key, val in old.items():
-            if val is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = val
-
     async def _invoke_stream(self, prompt: str, system_prompt: str,
                              work_dir: str | None = None) -> AsyncIterator[dict]:
-        """Call Claude Code SDK and yield normalized message dicts."""
         if not _HAS_SDK:
             yield {"type": "error", "content": "claude-code-sdk not installed"}
             return
 
         options = self._build_options(system_prompt, work_dir)
-        old_env = self._apply_env()
+        transport = SubprocessCLITransport(
+            prompt=prompt, options=options, cli_path=self._cli_path,
+        )
         try:
-            async for msg in query(prompt=prompt, options=options):
+            async for msg in query(prompt=prompt, options=options, transport=transport):
                 if hasattr(msg, "content") and msg.content:
                     for block in msg.content:
                         if hasattr(block, "text"):
@@ -118,10 +97,8 @@ class ClaudeCodeProvider(AIProvider):
                                 "input": getattr(block, "tool_input", ""),
                             }
         except Exception as e:
-            logger.exception("Claude Code SDK error")
+            logger.exception("Ducc CLI error")
             yield {"type": "error", "content": str(e)}
-        finally:
-            self._restore_env(old_env)
 
     async def prepare_prd(self, system_prompt: str,
                           user_prompt: str) -> AsyncIterator[dict]:
