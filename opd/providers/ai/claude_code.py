@@ -48,7 +48,48 @@ class ClaudeCodeProvider(AIProvider):
         auth_token = self.config.get("auth_token") or os.environ.get("ANTHROPIC_AUTH_TOKEN")
         if not auth_token:
             return HealthStatus(healthy=False, message="Auth Token 未配置")
-        return HealthStatus(healthy=True, message="Claude Code SDK available")
+
+        # Actually test connectivity by hitting the messages endpoint
+        base_url = self.config.get("base_url") or os.environ.get("ANTHROPIC_BASE_URL", "")
+        if base_url:
+            import asyncio
+            import json
+            import urllib.error
+            import urllib.request
+
+            # POST a minimal request to /v1/messages to verify URL + auth
+            test_url = base_url.rstrip("/") + "/v1/messages"
+            body = json.dumps({
+                "model": self._model,
+                "max_tokens": 1,
+                "messages": [{"role": "user", "content": "ping"}],
+            }).encode()
+            try:
+                req = urllib.request.Request(test_url, data=body, method="POST")
+                req.add_header("Authorization", f"Bearer {auth_token}")
+                req.add_header("Content-Type", "application/json")
+                req.add_header("anthropic-version", "2023-06-01")
+                await asyncio.to_thread(
+                    urllib.request.urlopen, req, timeout=10
+                )
+                return HealthStatus(healthy=True, message="连接正常")
+            except urllib.error.HTTPError as e:
+                if e.code in (401, 403):
+                    return HealthStatus(healthy=False, message=f"认证失败 (HTTP {e.code})")
+                if e.code == 404:
+                    return HealthStatus(healthy=False, message="API 地址错误 (404)")
+                if e.code == 400:
+                    # 400 = bad request but endpoint exists and auth passed
+                    return HealthStatus(healthy=True, message="连接正常")
+                if e.code >= 500:
+                    return HealthStatus(healthy=False, message=f"服务端错误 (HTTP {e.code})")
+                # Other 4xx (e.g. 429 rate limit) = connection works
+                return HealthStatus(healthy=True, message="连接正常")
+            except (urllib.error.URLError, OSError) as e:
+                reason = getattr(e, "reason", e)
+                return HealthStatus(healthy=False, message=f"无法连接: {reason}")
+
+        return HealthStatus(healthy=True, message="连接正常")
 
     async def cleanup(self):
         pass

@@ -15,6 +15,8 @@ export default function ProjectSettings() {
   const [caps, setCaps] = useState<CapabilityItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [edits, setEdits] = useState<Record<string, CapabilityItem['saved']>>({});
+  const [testing, setTesting] = useState<Record<string, boolean>>({});
+  const [saving, setSaving] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     getCapabilities(projectId)
@@ -46,16 +48,19 @@ export default function ProjectSettings() {
   };
 
   const handleSave = async (cap: string) => {
+    setSaving((prev) => ({ ...prev, [cap]: true }));
     try {
       await saveCapability(projectId, cap, getEdit(cap));
       message.success(`${CAPABILITY_LABELS[cap] || cap} 配置已保存`);
     } catch { message.error('保存失败'); }
+    finally { setSaving((prev) => ({ ...prev, [cap]: false })); }
   };
 
   const handleTest = async (cap: CapabilityItem) => {
     const edit = getEdit(cap.capability);
     const provider = edit.provider_override || cap.providers[0]?.name;
     if (!provider) return;
+    setTesting((prev) => ({ ...prev, [cap.capability]: true }));
     try {
       const res = await testCapability(projectId, cap.capability, {
         provider,
@@ -65,6 +70,7 @@ export default function ProjectSettings() {
       if (res.healthy) message.success(`${name}: ${res.message || '连接成功'}`);
       else message.error(`${name}: ${res.message || '连接失败'}`);
     } catch { message.error('测试失败'); }
+    finally { setTesting((prev) => ({ ...prev, [cap.capability]: false })); }
   };
 
   if (loading) return <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />;
@@ -138,10 +144,10 @@ export default function ProjectSettings() {
                 <Divider style={{ margin: '12px 0' }} />
                 <Form.Item wrapperCol={{ offset: 5 }}>
                   <Space>
-                    <Button type="primary" icon={<CheckCircleOutlined />} onClick={() => handleSave(cap.capability)}>
+                    <Button type="primary" icon={<CheckCircleOutlined />} loading={saving[cap.capability]} onClick={() => handleSave(cap.capability)}>
                       保存配置
                     </Button>
-                    <Button icon={<ApiOutlined />} onClick={() => handleTest(cap)}>
+                    <Button icon={<ApiOutlined />} loading={testing[cap.capability]} onClick={() => handleTest(cap)}>
                       测试连接
                     </Button>
                   </Space>

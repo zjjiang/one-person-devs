@@ -34,14 +34,50 @@ class GitHubProvider(SCMProvider):
     async def health_check(self) -> HealthStatus:
         if not self._token:
             return HealthStatus(healthy=False, message="GITHUB_TOKEN not set")
-        if not self._github:
-            return HealthStatus(healthy=False, message="PyGithub not initialized")
+
+        import asyncio
+        import json
+        import urllib.error
+        import urllib.request
+
+        headers = {
+            "Authorization": f"token {self._token}",
+            "Accept": "application/vnd.github+json",
+        }
+        repo_url = self.config.get("repo_url")
+
         try:
-            user = self._github.get_user()
-            _ = user.login
-            return HealthStatus(healthy=True, message=f"GitHub connected as {user.login}")
-        except Exception as e:
-            return HealthStatus(healthy=False, message=f"GitHub API error: {e}")
+            if repo_url:
+                # Single call: GET /repos/{owner}/{repo} — returns permissions + validates token
+                repo_name = self._repo_name(repo_url)
+                api_url = f"https://api.github.com/repos/{repo_name}"
+                req = urllib.request.Request(api_url, headers=headers)
+                resp = await asyncio.to_thread(urllib.request.urlopen, req, timeout=8)
+                data = json.loads(resp.read())
+                perms = data.get("permissions", {})
+                perm_str = "/".join(
+                    p for p in ("pull", "push", "admin") if perms.get(p)
+                )
+                owner = data.get("owner", {}).get("login", "")
+                return HealthStatus(
+                    healthy=True,
+                    message=f"仓库 {repo_name} 权限: {perm_str}（owner: {owner}）",
+                )
+            else:
+                # No repo_url, just verify token
+                req = urllib.request.Request("https://api.github.com/user", headers=headers)
+                resp = await asyncio.to_thread(urllib.request.urlopen, req, timeout=8)
+                data = json.loads(resp.read())
+                return HealthStatus(healthy=True, message=f"已连接 {data.get('login')}")
+        except urllib.error.HTTPError as e:
+            if e.code in (401, 403):
+                return HealthStatus(healthy=False, message=f"Token 认证失败 (HTTP {e.code})")
+            if e.code == 404:
+                return HealthStatus(healthy=False, message="仓库不存在或无访问权限")
+            return HealthStatus(healthy=False, message=f"GitHub API 错误 (HTTP {e.code})")
+        except (urllib.error.URLError, OSError) as e:
+            reason = getattr(e, "reason", e)
+            return HealthStatus(healthy=False, message=f"无法连接 GitHub: {reason}")
 
     async def cleanup(self):
         if self._github:

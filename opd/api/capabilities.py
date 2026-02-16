@@ -68,7 +68,7 @@ async def get_capabilities(
             "capability": cap_name,
             "providers": cap["providers"],
             "saved": {
-                "enabled": sc.enabled if sc else True,
+                "enabled": sc.enabled if sc else False,
                 "provider_override": sc.provider_override if sc else None,
                 "config_override": _mask_config(
                     sc.config_override, schema
@@ -148,6 +148,13 @@ async def test_capability(
         for field_name in password_fields:
             if config.get(field_name) == _MASK:
                 config[field_name] = saved.config_override.get(field_name)
+
+    # Inject project repo_url for SCM providers to test repo access
+    from opd.db.models import Project
+    proj_result = await db.execute(select(Project).where(Project.id == project_id))
+    project = proj_result.scalar_one_or_none()
+    if project and project.repo_url:
+        config.setdefault("repo_url", project.repo_url)
 
     provider = orch.capabilities.create_temp_provider(capability, body.provider, config)
     if not provider:
