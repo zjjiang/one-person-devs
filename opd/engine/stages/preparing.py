@@ -31,6 +31,8 @@ class PreparingStage(Stage):
 
         collected: list[str] = []
         async for msg in ai.provider.prepare_prd(system_prompt, user_prompt):
+            if ctx.publish:
+                await ctx.publish(msg)
             if msg.get("type") == "assistant":
                 collected.append(msg["content"])
 

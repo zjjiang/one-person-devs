@@ -5,6 +5,7 @@ export interface ProjectSummary {
   name: string;
   repo_url: string;
   story_count: number;
+  workspace_status: "pending" | "cloning" | "ready" | "error";
 }
 
 export interface Rule {
@@ -33,6 +34,9 @@ export interface Project {
   description: string;
   tech_stack: string;
   architecture: string;
+  workspace_dir: string;
+  workspace_status: "pending" | "cloning" | "ready" | "error";
+  workspace_error: string;
   rules: Rule[];
   skills: Skill[];
   stories: StorySummary[];
@@ -92,7 +96,7 @@ export interface CapabilityProvider {
 export interface ConfigField {
   name: string;
   label: string;
-  type: 'text' | 'password' | 'select';
+  type: "text" | "password" | "select";
   required?: boolean;
   options?: string[];
 }
@@ -108,31 +112,31 @@ export interface CapabilityItem {
 }
 
 export const STAGE_ORDER = [
-  'preparing',
-  'clarifying',
-  'planning',
-  'designing',
-  'coding',
-  'verifying',
-  'done',
+  "preparing",
+  "clarifying",
+  "planning",
+  "designing",
+  "coding",
+  "verifying",
+  "done",
 ] as const;
 
 export const STAGE_LABELS: Record<string, string> = {
-  preparing: '需求分析',
-  clarifying: '需求澄清',
-  planning: '技术方案',
-  designing: '详细设计',
-  coding: 'AI 编码',
-  verifying: '人工验证',
-  done: '完成',
+  preparing: "需求分析",
+  clarifying: "需求澄清",
+  planning: "技术方案",
+  designing: "详细设计",
+  coding: "AI 编码",
+  verifying: "人工验证",
+  done: "完成",
 };
 
 export const CAPABILITY_LABELS: Record<string, string> = {
-  ai: 'AI 编码',
-  scm: '代码管理',
-  ci: '持续集成',
-  doc: '文档管理',
-  sandbox: '沙箱环境',
-  notification: '通知推送',
-  requirement: '需求管理',
+  ai: "AI 编码",
+  scm: "代码管理",
+  ci: "持续集成",
+  doc: "文档管理",
+  sandbox: "沙箱环境",
+  notification: "通知推送",
+  requirement: "需求管理",
 };

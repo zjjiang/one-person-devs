@@ -13,63 +13,58 @@ import {
   Divider,
 } from "antd";
 import { ApiOutlined, CheckCircleOutlined } from "@ant-design/icons";
-import { useParams } from "react-router-dom";
 import {
-  getCapabilities,
-  saveCapability,
-  testCapability,
-} from "../api/capabilities";
-import type { CapabilityItem, ConfigField } from "../types";
-import { CAPABILITY_LABELS } from "../types";
+  getGlobalCapabilities,
+  saveGlobalCapability,
+  testGlobalCapability,
+  type GlobalCapabilityItem,
+  type ConfigSchemaField,
+} from "../api/settings";
+
+interface CapEdit {
+  enabled: boolean;
+  provider: string | null;
+  config: Record<string, string>;
+}
 
 const LABEL_COL = { span: 5 };
 const WRAPPER_COL = { span: 16 };
 
-export default function ProjectSettings() {
-  const { id } = useParams();
-  const projectId = Number(id);
-  const [caps, setCaps] = useState<CapabilityItem[]>([]);
+export default function GlobalSettings() {
+  const [caps, setCaps] = useState<GlobalCapabilityItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [edits, setEdits] = useState<Record<string, CapabilityItem["saved"]>>(
-    {},
-  );
+  const [edits, setEdits] = useState<Record<string, CapEdit>>({});
   const [testing, setTesting] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
-    getCapabilities(projectId)
+    getGlobalCapabilities()
       .then((data) => {
         setCaps(data);
-        const init: Record<string, CapabilityItem["saved"]> = {};
+        const init: Record<string, CapEdit> = {};
         data.forEach((c) => {
           init[c.capability] = { ...c.saved };
         });
         setEdits(init);
       })
       .finally(() => setLoading(false));
-  }, [projectId]);
+  }, []);
 
-  const getEdit = (cap: string) =>
-    edits[cap] || {
-      enabled: true,
-      provider_override: null,
-      config_override: {},
-    };
+  const getEdit = (cap: string): CapEdit =>
+    edits[cap] || { enabled: true, provider: null, config: {} };
 
-  const updateEdit = (cap: string, patch: Partial<CapabilityItem["saved"]>) => {
+  const updateEdit = (cap: string, patch: Partial<CapEdit>) => {
     setEdits((prev) => ({ ...prev, [cap]: { ...getEdit(cap), ...patch } }));
   };
 
   const updateConfigField = (cap: string, field: string, value: string) => {
     const current = getEdit(cap);
-    updateEdit(cap, {
-      config_override: { ...current.config_override, [field]: value },
-    });
+    updateEdit(cap, { config: { ...current.config, [field]: value } });
   };
 
-  const getSchema = (cap: CapabilityItem): ConfigField[] => {
+  const getSchema = (cap: GlobalCapabilityItem): ConfigSchemaField[] => {
     const providerName =
-      getEdit(cap.capability).provider_override || cap.providers[0]?.name;
+      getEdit(cap.capability).provider || cap.providers[0]?.name;
     const provider =
       cap.providers.find((p) => p.name === providerName) || cap.providers[0];
     return provider?.config_schema || [];
@@ -79,15 +74,16 @@ export default function ProjectSettings() {
     setSaving((prev) => ({ ...prev, [cap]: true }));
     try {
       const edit = getEdit(cap);
-      // Ensure provider_override is always set (default to first available provider)
-      if (!edit.provider_override) {
-        const capItem = caps.find((c) => c.capability === cap);
-        if (capItem?.providers[0]) {
-          edit.provider_override = capItem.providers[0].name;
-        }
-      }
-      await saveCapability(projectId, cap, edit);
-      message.success(`${CAPABILITY_LABELS[cap] || cap} 配置已保存`);
+      const providerOverride =
+        edit.provider ||
+        caps.find((c) => c.capability === cap)?.providers[0]?.name ||
+        null;
+      await saveGlobalCapability(cap, {
+        enabled: edit.enabled,
+        provider_override: providerOverride,
+        config_override: edit.config,
+      });
+      message.success("配置已保存");
     } catch {
       message.error("保存失败");
     } finally {
@@ -95,19 +91,19 @@ export default function ProjectSettings() {
     }
   };
 
-  const handleTest = async (cap: CapabilityItem) => {
+  const handleTest = async (cap: GlobalCapabilityItem) => {
     const edit = getEdit(cap.capability);
-    const provider = edit.provider_override || cap.providers[0]?.name;
+    const provider = edit.provider || cap.providers[0]?.name;
     if (!provider) return;
     setTesting((prev) => ({ ...prev, [cap.capability]: true }));
     try {
-      const res = await testCapability(projectId, cap.capability, {
+      const res = await testGlobalCapability(cap.capability, {
         provider,
-        config: edit.config_override,
+        config: edit.config,
       });
-      const name = CAPABILITY_LABELS[cap.capability] || cap.capability;
-      if (res.healthy) message.success(`${name}: ${res.message || "连接成功"}`);
-      else message.error(`${name}: ${res.message || "连接失败"}`);
+      if (res.healthy)
+        message.success(`${cap.label}: ${res.message || "连接成功"}`);
+      else message.error(`${cap.label}: ${res.message || "连接失败"}`);
     } catch {
       message.error("测试失败");
     } finally {
@@ -122,19 +118,25 @@ export default function ProjectSettings() {
 
   return (
     <>
-      <Typography.Title level={4}>能力配置</Typography.Title>
-      <Space direction="vertical" style={{ width: "100%" }} size={16}>
+      <Typography.Title level={4}>全局能力配置</Typography.Title>
+      <Typography.Paragraph type="secondary">
+        配置全局可用的能力和服务提供方，所有项目共享这些配置。
+      </Typography.Paragraph>
+      <Space
+        direction="vertical"
+        style={{ width: "100%", maxWidth: 720 }}
+        size={16}
+      >
         {caps.map((cap) => {
           const edit = getEdit(cap.capability);
           const schema = getSchema(cap);
-          const label = CAPABILITY_LABELS[cap.capability] || cap.capability;
           return (
             <Card
               key={cap.capability}
               title={
                 <Space>
                   <ApiOutlined />
-                  <span>{label}</span>
+                  <span>{cap.label}</span>
                   <Typography.Text
                     type="secondary"
                     style={{ fontSize: 12, fontWeight: "normal" }}
@@ -159,9 +161,9 @@ export default function ProjectSettings() {
                 {cap.providers.length > 1 && (
                   <Form.Item label="服务提供方">
                     <Select
-                      value={edit.provider_override || cap.providers[0]?.name}
+                      value={edit.provider || cap.providers[0]?.name}
                       onChange={(v) =>
-                        updateEdit(cap.capability, { provider_override: v })
+                        updateEdit(cap.capability, { provider: v })
                       }
                       style={{ maxWidth: 320 }}
                       options={cap.providers.map((p) => ({
@@ -179,7 +181,7 @@ export default function ProjectSettings() {
                   >
                     {field.type === "select" ? (
                       <Select
-                        value={edit.config_override[field.name] || undefined}
+                        value={edit.config[field.name] || undefined}
                         onChange={(v) =>
                           updateConfigField(cap.capability, field.name, v)
                         }
@@ -193,7 +195,7 @@ export default function ProjectSettings() {
                     ) : (
                       <Input
                         type={field.type === "password" ? "password" : "text"}
-                        value={edit.config_override[field.name] || ""}
+                        value={edit.config[field.name] || ""}
                         onChange={(e) =>
                           updateConfigField(
                             cap.capability,

@@ -1,78 +1,40 @@
-import { useState, useEffect, type ReactNode } from 'react';
-import { Layout, Menu, Typography } from 'antd';
-import {
-  ProjectOutlined,
-  PlusOutlined,
-  AppstoreOutlined,
-} from '@ant-design/icons';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { listProjects } from '../api/projects';
-import type { ProjectSummary } from '../types';
+import { type ReactNode } from "react";
+import { Layout, Typography, Button, Tooltip } from "antd";
+import { SettingOutlined } from "@ant-design/icons";
+import { useNavigate } from "react-router-dom";
 
-const { Sider, Content } = Layout;
+const { Header, Content } = Layout;
 
 export default function AppLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
-  const location = useLocation();
-  const [projects, setProjects] = useState<ProjectSummary[]>([]);
-  const [collapsed, setCollapsed] = useState(false);
-
-  useEffect(() => {
-    listProjects().then(setProjects).catch(() => {});
-  }, [location.pathname]);
-
-  const menuItems = [
-    {
-      key: '/',
-      icon: <AppstoreOutlined />,
-      label: '所有项目',
-    },
-    {
-      key: '/projects/new',
-      icon: <PlusOutlined />,
-      label: '新建项目',
-    },
-    ...projects.map((p) => ({
-      key: `/projects/${p.id}`,
-      icon: <ProjectOutlined />,
-      label: p.name,
-    })),
-  ];
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
-      <Sider
-        collapsible
-        collapsed={collapsed}
-        onCollapse={setCollapsed}
-        theme="dark"
-        width={220}
+    <Layout style={{ minHeight: "100vh" }}>
+      <Header
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          background: "#001529",
+          padding: "0 24px",
+        }}
       >
-        <div
-          style={{
-            height: 48,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            borderBottom: '1px solid rgba(255,255,255,0.1)',
-          }}
+        <Typography.Text
+          strong
+          style={{ color: "#fff", fontSize: 18, cursor: "pointer" }}
+          onClick={() => navigate("/")}
         >
-          <Typography.Text
-            strong
-            style={{ color: '#fff', fontSize: collapsed ? 14 : 18 }}
-          >
-            {collapsed ? 'OPD' : 'OPD v2'}
-          </Typography.Text>
-        </div>
-        <Menu
-          theme="dark"
-          mode="inline"
-          selectedKeys={[location.pathname]}
-          items={menuItems}
-          onClick={({ key }) => navigate(key)}
-        />
-      </Sider>
-      <Content style={{ padding: 24, background: '#f5f5f5' }}>
+          OPD v2
+        </Typography.Text>
+        <Tooltip title="全局设置">
+          <Button
+            type="text"
+            icon={<SettingOutlined style={{ fontSize: 18, color: "#ffffffd9" }} />}
+            onClick={() => navigate("/settings")}
+          />
+        </Tooltip>
+      </Header>
+      <Content style={{ padding: 24, background: "#f5f5f5" }}>
         {children}
       </Content>
     </Layout>

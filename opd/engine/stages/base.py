@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from opd.capabilities.registry import CapabilityRegistry
@@ -19,6 +20,7 @@ class StageContext:
     project: Project
     round: Round
     capabilities: CapabilityRegistry
+    publish: Callable[[dict[str, Any]], Coroutine[Any, Any, None]] | None = None
 
 
 @dataclass

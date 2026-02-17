@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 from opd.db.models import StoryStatus
 from opd.engine.context import build_coding_prompt
 from opd.engine.stages.base import Stage, StageContext, StageResult
+from opd.engine.workspace import read_doc, resolve_work_dir
 
 logger = logging.getLogger(__name__)
 
@@ -28,15 +28,23 @@ class CodingStage(Stage):
         if not ai:
             return StageResult(success=False, errors=["AI capability not available"])
 
+        # Read detailed_design content from file if DB stores a path
+        dd = ctx.story.detailed_design or ""
+        if dd.startswith("docs/"):
+            file_content = read_doc(ctx.project, ctx.story, "detailed_design.md")
+            if file_content:
+                dd = file_content
+
         system_prompt, user_prompt = build_coding_prompt(
             ctx.story, ctx.project, ctx.round,
         )
 
-        # Resolve working directory: workspace.base_dir / project_name
-        work_dir = self._resolve_work_dir(ctx)
+        work_dir = str(resolve_work_dir(ctx.project))
 
         collected: list[str] = []
         async for msg in ai.provider.code(system_prompt, user_prompt, work_dir):
+            if ctx.publish:
+                await ctx.publish(msg)
             if msg.get("type") == "assistant":
                 collected.append(msg["content"])
 
@@ -45,17 +53,6 @@ class CodingStage(Stage):
             output={"messages": collected},
             next_status=StoryStatus.verifying,
         )
-
-    def _resolve_work_dir(self, ctx: StageContext) -> str:
-        """Resolve work directory from project's workspace_dir setting."""
-        workspace_dir = getattr(ctx.project, "workspace_dir", "") or ""
-        if not workspace_dir:
-            workspace_dir = "./workspace"
-
-        project_name = ctx.project.name.replace(" ", "_").replace("/", "_")
-        work_dir = str(Path(workspace_dir).resolve() / project_name)
-        Path(work_dir).mkdir(parents=True, exist_ok=True)
-        return work_dir
 
     async def validate_output(self, result: StageResult) -> list[str]:
         return []

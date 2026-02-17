@@ -12,6 +12,7 @@ from opd.engine.orchestrator import Orchestrator
 from opd.models.schemas import SaveCapabilityConfigRequest, TestCapabilityRequest
 
 router = APIRouter(prefix="/api/projects/{project_id}/capabilities", tags=["capabilities"])
+catalog_router = APIRouter(prefix="/api/capabilities", tags=["capabilities"])
 
 _MASK = "***"
 
@@ -68,7 +69,7 @@ async def get_capabilities(
             "capability": cap_name,
             "providers": cap["providers"],
             "saved": {
-                "enabled": sc.enabled if sc else False,
+                "enabled": sc.enabled if sc else True,
                 "provider_override": sc.provider_override if sc else None,
                 "config_override": _mask_config(
                     sc.config_override, schema
@@ -166,3 +167,64 @@ async def test_capability(
         return {"healthy": status.healthy, "message": status.message}
     finally:
         await provider.cleanup()
+
+
+# --- Global catalog (no project_id needed) ---
+
+CAPABILITY_LABELS = {
+    "ai": "AI 编码",
+    "scm": "代码管理",
+    "ci": "持续集成",
+    "doc": "文档管理",
+    "sandbox": "沙箱环境",
+    "notification": "通知推送",
+}
+
+
+@catalog_router.get("/catalog")
+async def get_catalog(orch: Orchestrator = Depends(get_orch)):
+    """Return global capability catalog (for project creation form)."""
+    available = orch.capabilities.list_available()
+    return [
+        {
+            "capability": cap["capability"],
+            "label": CAPABILITY_LABELS.get(cap["capability"], cap["capability"]),
+            "providers": [{"name": p["name"]} for p in cap["providers"]],
+        }
+        for cap in available
+    ]
+
+
+# --- Batch save capabilities ---
+
+@router.post("/batch")
+async def batch_save_capabilities(
+    project_id: int,
+    body: list[SaveCapabilityConfigRequest],
+    db: AsyncSession = Depends(get_db),
+):
+    """Batch upsert capability configs for a project (used after creation)."""
+    for item in body:
+        if not item.capability:
+            continue
+        result = await db.execute(
+            select(ProjectCapabilityConfig).where(
+                ProjectCapabilityConfig.project_id == project_id,
+                ProjectCapabilityConfig.capability == item.capability,
+            )
+        )
+        existing = result.scalar_one_or_none()
+        if existing:
+            existing.enabled = item.enabled
+            existing.provider_override = item.provider_override
+            existing.config_override = item.config_override or {}
+        else:
+            db.add(ProjectCapabilityConfig(
+                project_id=project_id,
+                capability=item.capability,
+                enabled=item.enabled,
+                provider_override=item.provider_override,
+                config_override=item.config_override or {},
+            ))
+    await db.commit()
+    return {"ok": True}

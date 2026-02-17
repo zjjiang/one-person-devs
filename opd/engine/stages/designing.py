@@ -32,6 +32,8 @@ class DesigningStage(Stage):
 
         collected: list[str] = []
         async for msg in ai.provider.design(system_prompt, user_prompt):
+            if ctx.publish:
+                await ctx.publish(msg)
             if msg.get("type") == "assistant":
                 collected.append(msg["content"])
 

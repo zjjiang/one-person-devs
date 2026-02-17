@@ -178,3 +178,8 @@ class ClaudeCodeProvider(AIProvider):
                    work_dir: str) -> AsyncIterator[dict]:
         async for msg in self._invoke_stream(user_prompt, system_prompt, work_dir):
             yield msg
+
+    async def refine_prd(self, system_prompt: str,
+                         user_prompt: str) -> AsyncIterator[dict]:
+        async for msg in self._invoke_stream(user_prompt, system_prompt):
+            yield msg

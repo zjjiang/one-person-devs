@@ -31,3 +31,7 @@ class AIProvider(Provider):
     @abstractmethod
     async def prepare_prd(self, system_prompt: str, user_prompt: str) -> AsyncIterator[dict]:
         """Generate/polish PRD from raw input. Streams messages."""
+
+    @abstractmethod
+    async def refine_prd(self, system_prompt: str, user_prompt: str) -> AsyncIterator[dict]:
+        """Refine PRD based on user feedback in a conversational flow. Streams messages."""

@@ -73,6 +73,13 @@ class SkillTrigger(str, enum.Enum):
     manual = "manual"
 
 
+class WorkspaceStatus(str, enum.Enum):
+    pending = "pending"
+    cloning = "cloning"
+    ready = "ready"
+    error = "error"
+
+
 # --- Models ---
 
 
@@ -86,6 +93,10 @@ class Project(Base):
     tech_stack: Mapped[str] = mapped_column(Text, default="")
     architecture: Mapped[str] = mapped_column(Text, default="")
     workspace_dir: Mapped[str] = mapped_column(String(500), default="")
+    workspace_status: Mapped[WorkspaceStatus] = mapped_column(
+        Enum(WorkspaceStatus), default=WorkspaceStatus.pending
+    )
+    workspace_error: Mapped[str] = mapped_column(String(2000), default="")
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now()
     )
@@ -143,6 +154,16 @@ class ProjectCapabilityConfig(Base):
     config_override: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     project: Mapped[Project] = relationship(back_populates="capability_configs")
+
+
+class GlobalCapabilityConfig(Base):
+    __tablename__ = "global_capability_configs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    capability: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    provider: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class Story(Base):

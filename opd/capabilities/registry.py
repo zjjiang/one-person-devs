@@ -220,15 +220,21 @@ class CapabilityRegistry:
             # Determine the provider name to use
             if not provider_name:
                 existing = self._capabilities.get(cap_name)
-                if not existing:
-                    continue
-                # Merge config_override into existing provider config
-                merged = {**existing.provider.config, **config_override}
-                provider = self._create_provider(
-                    cap_name,
-                    self._resolve_provider_name(cap_name, existing.provider),
-                    merged,
-                )
+                if existing:
+                    # Merge config_override into existing provider config
+                    merged = {**existing.provider.config, **config_override}
+                    provider_name = self._resolve_provider_name(cap_name, existing.provider)
+                else:
+                    # No existing capability — infer first built-in provider
+                    builtins = _BUILTIN_PROVIDERS.get(cap_name, {})
+                    provider_name = next(iter(builtins), None) if builtins else None
+                    if not provider_name:
+                        logger.warning(
+                            "Cannot infer provider for capability [%s], skipping", cap_name,
+                        )
+                        continue
+                    merged = dict(config_override)
+                provider = self._create_provider(cap_name, provider_name, merged)
             else:
                 # Use the overridden provider with merged config
                 existing = self._capabilities.get(cap_name)

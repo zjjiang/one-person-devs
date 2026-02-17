@@ -123,12 +123,15 @@ def create_app(config_path: str = "opd.yaml") -> FastAPI:
         }
 
     # API routers
-    from opd.api.capabilities import router as capabilities_router
+    from opd.api.capabilities import catalog_router, router as capabilities_router
     from opd.api.projects import router as projects_router
+    from opd.api.settings import router as settings_router
     from opd.api.stories import router as stories_router
     from opd.api.webhooks import router as webhooks_router
 
+    app.include_router(catalog_router)
     app.include_router(capabilities_router)
+    app.include_router(settings_router)
     app.include_router(projects_router)
     app.include_router(stories_router)
     app.include_router(webhooks_router)

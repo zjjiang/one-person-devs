@@ -17,6 +17,12 @@ def init_db(database_url: str):
     _session_factory = async_sessionmaker(_engine, expire_on_commit=False)
 
 
+def get_session_factory() -> async_sessionmaker:
+    """Return the session factory for direct use in background tasks."""
+    assert _session_factory is not None, "Database not initialized"
+    return _session_factory
+
+
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
     """Yield an async DB session with auto-commit."""
     async with _session_factory() as session:
