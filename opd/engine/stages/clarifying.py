@@ -6,6 +6,7 @@ import logging
 
 from opd.engine.context import build_clarifying_prompt
 from opd.engine.stages.base import Stage, StageContext, StageResult
+from opd.engine.workspace import scan_workspace
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,12 @@ class ClarifyingStage(Stage):
         if not ai:
             return StageResult(success=False, errors=["AI capability not available"])
 
-        system_prompt, user_prompt = build_clarifying_prompt(ctx.story, ctx.project)
+        # Scan workspace source code for context
+        source_context = scan_workspace(ctx.project)
+
+        system_prompt, user_prompt = build_clarifying_prompt(
+            ctx.story, ctx.project, source_context=source_context,
+        )
 
         collected: list[str] = []
         async for msg in ai.provider.clarify(system_prompt, user_prompt):

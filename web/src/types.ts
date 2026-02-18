@@ -86,6 +86,8 @@ export interface Story {
   rounds: RoundItem[];
   clarifications: ClarificationItem[];
   active_round_id: number | null;
+  ai_running: boolean;
+  ai_stage_running: boolean;
 }
 
 export interface CapabilityProvider {

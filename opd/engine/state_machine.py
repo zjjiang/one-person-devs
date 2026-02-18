@@ -6,9 +6,11 @@ from opd.db.models import StoryStatus
 
 VALID_TRANSITIONS: dict[str, list[str]] = {
     StoryStatus.preparing: [StoryStatus.clarifying],
-    StoryStatus.clarifying: [StoryStatus.planning],
-    StoryStatus.planning: [StoryStatus.designing],
-    StoryStatus.designing: [StoryStatus.coding],
+    StoryStatus.clarifying: [StoryStatus.planning, StoryStatus.preparing],
+    StoryStatus.planning: [StoryStatus.designing, StoryStatus.preparing, StoryStatus.clarifying],
+    StoryStatus.designing: [
+        StoryStatus.coding, StoryStatus.preparing, StoryStatus.clarifying, StoryStatus.planning,
+    ],
     StoryStatus.coding: [StoryStatus.verifying],
     StoryStatus.verifying: [StoryStatus.done, StoryStatus.coding, StoryStatus.designing],
 }

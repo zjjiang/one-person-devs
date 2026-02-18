@@ -18,9 +18,11 @@ export default function PrdEditor({
   readOnly,
 }: Props) {
   return (
-    <div data-color-mode="light">
+    <div data-color-mode="light" style={{ overflow: "hidden" }}>
       {!readOnly && (
-        <Space style={{ marginBottom: 8, justifyContent: "flex-end", width: "100%" }}>
+        <Space
+          style={{ marginBottom: 8, justifyContent: "flex-end", width: "100%" }}
+        >
           <Button
             type="primary"
             size="small"
@@ -34,10 +36,12 @@ export default function PrdEditor({
       )}
 
       {readOnly ? (
-        <MDEditor.Markdown
-          source={value || ""}
-          style={{ padding: 16, minHeight: 300 }}
-        />
+        <div style={{ maxHeight: 600, overflow: "auto" }}>
+          <MDEditor.Markdown
+            source={value || ""}
+            style={{ padding: 16, minHeight: 300 }}
+          />
+        </div>
       ) : (
         <MDEditor
           value={value}

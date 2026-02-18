@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Input, Button, Space } from "antd";
-import { SendOutlined, LoadingOutlined } from "@ant-design/icons";
+import {
+  SendOutlined,
+  LoadingOutlined,
+  CheckCircleOutlined,
+} from "@ant-design/icons";
 
 interface ChatMessage {
   role: "user" | "assistant" | "system" | "error";
@@ -11,7 +15,7 @@ interface Props {
   storyId: number;
   active: boolean;
   onSend: (message: string) => void;
-  onPrdUpdated?: (newPrd: string) => void;
+  onDocUpdated?: (content: string, filename: string) => void;
   onDone?: () => void;
 }
 
@@ -19,7 +23,7 @@ export default function ChatPanel({
   storyId,
   active,
   onSend,
-  onPrdUpdated,
+  onDocUpdated,
   onDone,
 }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -27,24 +31,38 @@ export default function ChatPanel({
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const esRef = useRef<EventSource | null>(null);
+  const hasNewAssistantMsg = useRef(false);
+
+  // Stable refs for callbacks to avoid SSE reconnects
+  const onDocUpdatedRef = useRef(onDocUpdated);
+  onDocUpdatedRef.current = onDocUpdated;
+  const onDoneRef = useRef(onDone);
+  onDoneRef.current = onDone;
 
   // Connect to SSE stream
   useEffect(() => {
     if (!active) return;
 
-    const es = new EventSource(`/api/stories/${storyId}/stream`);
+    const es = new EventSource(`/api/stories/${storyId}/stream?mode=chat`);
     esRef.current = es;
 
     es.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data);
-        if (msg.type === "prd_updated") {
-          onPrdUpdated?.(msg.content);
+        if (msg.type === "doc_updated" || msg.type === "prd_updated") {
+          onDocUpdatedRef.current?.(msg.content, msg.filename || "prd.md");
           return;
         }
         if (msg.type === "done") {
+          if (hasNewAssistantMsg.current) {
+            setMessages((prev) => [
+              ...prev,
+              { role: "system", content: "AI 处理完成" },
+            ]);
+            hasNewAssistantMsg.current = false;
+          }
           setLoading(false);
-          onDone?.();
+          onDoneRef.current?.();
           return;
         }
         if (msg.type === "error") {
@@ -56,6 +74,7 @@ export default function ChatPanel({
           return;
         }
         if (msg.type === "assistant" && msg.content) {
+          hasNewAssistantMsg.current = true;
           setMessages((prev) => [
             ...prev,
             { role: "assistant", content: msg.content },
@@ -73,7 +92,7 @@ export default function ChatPanel({
     return () => {
       es.close();
     };
-  }, [storyId, active, onPrdUpdated, onDone]);
+  }, [storyId, active]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -89,51 +108,72 @@ export default function ChatPanel({
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        minHeight: 0,
+      }}
+    >
       <div
         style={{
           flex: 1,
           overflowY: "auto",
           padding: "8px 0",
-          minHeight: 300,
-          maxHeight: 500,
+          minHeight: 0,
         }}
       >
         {messages.length === 0 && (
           <div style={{ color: "#999", textAlign: "center", marginTop: 40 }}>
-            输入消息和 AI 讨论，修改完善 PRD
+            输入消息和 AI 讨论，完善文档
           </div>
         )}
-        {messages.map((msg, i) => (
-          <div
-            key={i}
-            style={{
-              display: "flex",
-              justifyContent: msg.role === "user" ? "flex-end" : "flex-start",
-              marginBottom: 8,
-              padding: "0 4px",
-            }}
-          >
+        {messages.map((msg, i) =>
+          msg.role === "system" ? (
             <div
+              key={i}
               style={{
-                maxWidth: "85%",
-                padding: "8px 12px",
-                borderRadius: 8,
-                fontSize: 13,
-                lineHeight: 1.6,
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-word",
-                ...(msg.role === "user"
-                  ? { background: "#1677ff", color: "#fff" }
-                  : msg.role === "error"
-                    ? { background: "#fff2f0", color: "#ff4d4f" }
-                    : { background: "#f5f5f5", color: "#333" }),
+                textAlign: "center",
+                padding: "6px 0",
+                color: "#52c41a",
+                fontSize: 12,
               }}
             >
+              <CheckCircleOutlined style={{ marginRight: 4 }} />
               {msg.content}
             </div>
-          </div>
-        ))}
+          ) : (
+            <div
+              key={i}
+              style={{
+                display: "flex",
+                justifyContent: msg.role === "user" ? "flex-end" : "flex-start",
+                marginBottom: 8,
+                padding: "0 4px",
+              }}
+            >
+              <div
+                style={{
+                  maxWidth: "85%",
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  fontSize: 13,
+                  lineHeight: 1.6,
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  ...(msg.role === "user"
+                    ? { background: "#1677ff", color: "#fff" }
+                    : msg.role === "error"
+                      ? { background: "#fff2f0", color: "#ff4d4f" }
+                      : { background: "#f5f5f5", color: "#333" }),
+                }}
+              >
+                {msg.content}
+              </div>
+            </div>
+          ),
+        )}
         {loading && (
           <div style={{ padding: "8px 4px", color: "#999" }}>
             <LoadingOutlined /> AI 思考中...

@@ -13,6 +13,15 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Marker that AI should output at the end of a complete document.
+# Used to detect truncation and trigger continuation.
+COMPLETION_MARKER = "<!-- DOCUMENT_COMPLETE -->"
+
+_COMPLETION_INSTRUCTION = (
+    f"\n\n重要：文档全部输出完成后，必须在最后单独一行输出 `{COMPLETION_MARKER}` 标记。"
+    "这个标记用于确认文档已完整输出，不要遗漏。"
+)
+
 
 def _resolve_doc(story: Story, project: Project, field: str, filename: str) -> str:
     """Resolve a doc field: if it looks like a path, read from file; otherwise return as-is."""
@@ -84,7 +93,9 @@ def build_preparing_prompt(story: Story, project: Project) -> tuple[str, str]:
     return system, user
 
 
-def build_clarifying_prompt(story: Story, project: Project) -> tuple[str, str]:
+def build_clarifying_prompt(
+    story: Story, project: Project, source_context: str = "",
+) -> tuple[str, str]:
     """Return (system_prompt, user_prompt) for requirement clarification."""
     system = (
         "你是一个资深研发工程师。分析以下 PRD，基于你对当前系统的理解，"
@@ -96,6 +107,8 @@ def build_clarifying_prompt(story: Story, project: Project) -> tuple[str, str]:
     clarifications = _clarifications_block(story)
     if clarifications:
         user += f"\n\n{clarifications}"
+    if source_context:
+        user += f"\n\n{source_context}"
     return system, user
 
 
@@ -109,6 +122,7 @@ def build_planning_prompt(story: Story, project: Project) -> tuple[str, str]:
         '[{"title": "...", "description": "...", "scope": "...", '
         '"acceptance_criteria": "...", "order": 1, "depends_on": []}]\n\n'
         + build_project_context(project)
+        + _COMPLETION_INSTRUCTION
     )
     user = f"## 确认后的 PRD\n{_resolve_doc(story, project, 'confirmed_prd', 'prd.md') or _resolve_doc(story, project, 'prd', 'prd.md')}"
     return system, user
@@ -121,6 +135,7 @@ def build_designing_prompt(story: Story, project: Project) -> tuple[str, str]:
         "详细设计应覆盖所有 Task 的实现细节，包括：改哪些文件、每个文件的改动说明。\n"
         "使用 Markdown 格式输出。\n\n"
         + build_project_context(project)
+        + _COMPLETION_INSTRUCTION
     )
     tasks = _tasks_block(story)
     user = f"## 概要设计\n{_resolve_doc(story, project, 'technical_design', 'technical_design.md')}\n\n{tasks}"
@@ -146,16 +161,38 @@ def build_coding_prompt(story: Story, project: Project, round_: Round) -> tuple[
     return system, user
 
 
+def build_continuation_prompt(output_so_far: str, tail_chars: int = 500) -> str:
+    """Build a user prompt asking AI to continue from where it was truncated."""
+    tail = output_so_far[-tail_chars:]
+    return (
+        "你的上一次输出被截断了，请从截断处继续输出（不要重复已输出的内容）。\n\n"
+        f"---上次输出的末尾---\n{tail}\n---\n\n"
+        f"请继续输出剩余内容。完成后在最后单独一行输出 `{COMPLETION_MARKER}` 标记。"
+    )
+
+
+def is_output_complete(text: str) -> bool:
+    """Check if AI output contains the completion marker."""
+    return COMPLETION_MARKER in text
+
+
+def strip_completion_marker(text: str) -> str:
+    """Remove the completion marker from final output."""
+    return text.replace(COMPLETION_MARKER, "").rstrip()
+
+
 # ---------------------------------------------------------------------------
-# PRD refinement (chat-based)
+# Document refinement (chat-based)
 # ---------------------------------------------------------------------------
 
 _REFINE_FORMAT_INSTRUCTION = (
     "\n\n你的回复必须使用以下格式：\n"
-    "<discussion>\n你的讨论回复内容\n</discussion>\n\n"
-    "<updated_prd>\n（仅当 PRD 需要修改时才包含此块）\n完整的更新后 PRD markdown\n</updated_prd>\n\n"
-    "重要：如果 PRD 不需要修改，只输出 <discussion> 块即可。\n"
-    "如果需要修改 PRD，<updated_prd> 中必须包含完整的 PRD 内容（不是增量）。"
+    "<discussion>\n你的讨论回复内容（限 2-3 句简短回复，不要输出大段内容）\n</discussion>\n\n"
+    "<updated_doc>\n（仅当文档需要修改时才包含此块）\n完整的更新后文档 markdown\n</updated_doc>\n\n"
+    "重要：\n"
+    "- discussion 部分只做简短对话回复（2-3 句话），不要在其中输出文档内容或大段分析。\n"
+    "- 如果文档不需要修改，只输出 <discussion> 块即可。\n"
+    "- 如果需要修改文档，<updated_doc> 中必须包含完整的文档内容（不是增量）。"
 )
 
 
@@ -217,20 +254,91 @@ def build_clarifying_chat_prompt(
     return system, "\n\n".join(parts)
 
 
+def build_planning_chat_prompt(
+    story: Story,
+    project: Project,
+    history: list[dict],
+    user_message: str,
+) -> tuple[str, str]:
+    """Return (system_prompt, user_prompt) for chat-based technical design refinement."""
+    system = (
+        "你是一个资深架构师。你正在和用户讨论并完善技术方案文档。\n"
+        "用户可能会提出修改意见、提问、或要求调整技术方案的某些部分。\n"
+        + _REFINE_FORMAT_INSTRUCTION + "\n\n"
+        + build_project_context(project)
+    )
+    td_content = _resolve_doc(story, project, "technical_design", "technical_design.md") or "（尚未生成）"
+    prd_content = _resolve_doc(story, project, "confirmed_prd", "prd.md") or _resolve_doc(
+        story, project, "prd", "prd.md"
+    )
+    parts = [f"## 确认后的 PRD\n{prd_content}", f"## 当前技术方案\n{td_content}"]
+    tasks = _tasks_block(story)
+    if tasks:
+        parts.append(tasks)
+    hb = _history_block(history)
+    if hb:
+        parts.append(hb)
+    parts.append(f"## 用户新消息\n{user_message}")
+    return system, "\n\n".join(parts)
+
+
+def build_designing_chat_prompt(
+    story: Story,
+    project: Project,
+    history: list[dict],
+    user_message: str,
+) -> tuple[str, str]:
+    """Return (system_prompt, user_prompt) for chat-based detailed design refinement."""
+    system = (
+        "你是一个高级开发者。你正在和用户讨论并完善详细设计文档。\n"
+        "用户可能会提出修改意见、提问、或要求调整详细设计的某些部分。\n"
+        + _REFINE_FORMAT_INSTRUCTION + "\n\n"
+        + build_project_context(project)
+    )
+    dd_content = _resolve_doc(story, project, "detailed_design", "detailed_design.md") or "（尚未生成）"
+    td_content = _resolve_doc(story, project, "technical_design", "technical_design.md") or ""
+    parts = []
+    if td_content:
+        parts.append(f"## 技术方案\n{td_content}")
+    parts.append(f"## 当前详细设计\n{dd_content}")
+    tasks = _tasks_block(story)
+    if tasks:
+        parts.append(tasks)
+    hb = _history_block(history)
+    if hb:
+        parts.append(hb)
+    parts.append(f"## 用户新消息\n{user_message}")
+    return system, "\n\n".join(parts)
+
+
 def parse_refine_response(full_text: str) -> tuple[str, str | None]:
-    """Parse AI refinement response into (discussion, updated_prd_or_none)."""
+    """Parse AI refinement response into (discussion, updated_doc_or_none)."""
     discussion = ""
-    updated_prd = None
+    updated_doc = None
 
     disc_match = re.search(r"<discussion>(.*?)</discussion>", full_text, re.DOTALL)
     if disc_match:
         discussion = disc_match.group(1).strip()
     else:
-        # Fallback: treat entire text as discussion
-        discussion = re.sub(r"<updated_prd>.*?</updated_prd>", "", full_text, flags=re.DOTALL).strip()
+        # Fallback: strip updated_doc blocks, take remaining as discussion
+        discussion = re.sub(
+            r"<updated_(?:doc|prd)>.*?</updated_(?:doc|prd)>", "", full_text, flags=re.DOTALL,
+        ).strip()
+        # Safety: if no tags were used and discussion is too long, truncate to first few sentences
+        if len(discussion) > 500:
+            sentences = re.split(r'(?<=[。！？.!?])\s*', discussion)
+            truncated = ""
+            for s in sentences[:3]:
+                truncated += s
+                if len(truncated) > 200:
+                    break
+            discussion = truncated.strip() if truncated.strip() else discussion[:300] + "..."
 
-    prd_match = re.search(r"<updated_prd>(.*?)</updated_prd>", full_text, re.DOTALL)
-    if prd_match:
-        updated_prd = prd_match.group(1).strip()
+    # Support both <updated_doc> (new) and <updated_prd> (legacy)
+    doc_match = re.search(r"<updated_doc>(.*?)</updated_doc>", full_text, re.DOTALL)
+    if not doc_match:
+        doc_match = re.search(r"<updated_prd>(.*?)</updated_prd>", full_text, re.DOTALL)
+    if doc_match:
+        updated_doc = doc_match.group(1).strip()
 
-    return discussion, updated_prd
+    return discussion, updated_doc

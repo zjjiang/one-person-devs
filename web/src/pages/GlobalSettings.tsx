@@ -117,16 +117,12 @@ export default function GlobalSettings() {
     );
 
   return (
-    <>
+    <div style={{ maxWidth: 720, margin: "0 auto" }}>
       <Typography.Title level={4}>全局能力配置</Typography.Title>
       <Typography.Paragraph type="secondary">
         配置全局可用的能力和服务提供方，所有项目共享这些配置。
       </Typography.Paragraph>
-      <Space
-        direction="vertical"
-        style={{ width: "100%", maxWidth: 720 }}
-        size={16}
-      >
+      <Space direction="vertical" style={{ width: "100%" }} size={16}>
         {caps.map((cap) => {
           const edit = getEdit(cap.capability);
           const schema = getSchema(cap);
@@ -241,6 +237,6 @@ export default function GlobalSettings() {
           );
         })}
       </Space>
-    </>
+    </div>
   );
 }

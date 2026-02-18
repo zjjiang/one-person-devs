@@ -26,7 +26,7 @@ export const rejectStage = (id: number) =>
 
 export const answerQuestions = (
   id: number,
-  answers: { question: string; answer: string }[],
+  answers: { id: number; question: string; answer: string }[],
 ) =>
   request(`/api/stories/${id}/answer`, {
     method: "POST",
@@ -41,6 +41,12 @@ export const restartStory = (id: number) =>
 
 export const stopStory = (id: number) =>
   request(`/api/stories/${id}/stop`, { method: "POST" });
+
+export const rollbackStory = (id: number, targetStage: string) =>
+  request<{ id: number; status: string }>(`/api/stories/${id}/rollback`, {
+    method: "POST",
+    body: JSON.stringify({ target_stage: targetStage }),
+  });
 
 export const preflightCheck = (id: number) =>
   request<{ ok: boolean; errors: string[]; warnings: string[] }>(

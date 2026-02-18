@@ -95,7 +95,8 @@ class ClaudeCodeProvider(AIProvider):
         pass
 
     def _build_options(self, system_prompt: str,
-                       work_dir: str | None = None) -> "ClaudeCodeOptions":
+                       work_dir: str | None = None,
+                       max_turns: int | None = None) -> "ClaudeCodeOptions":
         opts = {
             "system_prompt": system_prompt,
             "model": self._model,
@@ -103,6 +104,8 @@ class ClaudeCodeProvider(AIProvider):
         }
         if work_dir:
             opts["cwd"] = work_dir
+        if max_turns is not None:
+            opts["max_turns"] = max_turns
         return ClaudeCodeOptions(**opts)
 
     def _apply_env(self) -> dict[str, str | None]:
@@ -128,13 +131,14 @@ class ClaudeCodeProvider(AIProvider):
                 os.environ[key] = val
 
     async def _invoke_stream(self, prompt: str, system_prompt: str,
-                             work_dir: str | None = None) -> AsyncIterator[dict]:
+                             work_dir: str | None = None,
+                             max_turns: int | None = None) -> AsyncIterator[dict]:
         """Call Claude Code SDK and yield normalized message dicts."""
         if not _HAS_SDK:
             yield {"type": "error", "content": "claude-code-sdk not installed"}
             return
 
-        options = self._build_options(system_prompt, work_dir)
+        options = self._build_options(system_prompt, work_dir, max_turns)
         old_env = self._apply_env()
         try:
             async for msg in query(prompt=prompt, options=options):

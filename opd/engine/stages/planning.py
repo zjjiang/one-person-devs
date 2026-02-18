@@ -4,10 +4,17 @@ from __future__ import annotations
 
 import logging
 
-from opd.engine.context import build_planning_prompt
+from opd.engine.context import (
+    build_continuation_prompt,
+    build_planning_prompt,
+    is_output_complete,
+    strip_completion_marker,
+)
 from opd.engine.stages.base import Stage, StageContext, StageResult
 
 logger = logging.getLogger(__name__)
+
+MAX_CONTINUATIONS = 3
 
 
 class PlanningStage(Stage):
@@ -35,7 +42,29 @@ class PlanningStage(Stage):
             if msg.get("type") == "assistant":
                 collected.append(msg["content"])
 
-        technical_design = "\n".join(collected)
+        full_output = "\n".join(collected)
+
+        # Continuation loop: if output is truncated, ask AI to continue
+        for i in range(MAX_CONTINUATIONS):
+            if is_output_complete(full_output) or not full_output.strip():
+                break
+            logger.info(
+                "Technical design output truncated (round %d/%d, %d chars), continuing...",
+                i + 1, MAX_CONTINUATIONS, len(full_output),
+            )
+            cont_prompt = build_continuation_prompt(full_output)
+            cont_collected: list[str] = []
+            async for msg in ai.provider.plan(system_prompt, cont_prompt):
+                if ctx.publish:
+                    await ctx.publish(msg)
+                if msg.get("type") == "assistant":
+                    cont_collected.append(msg["content"])
+            continuation = "\n".join(cont_collected)
+            if not continuation.strip():
+                break
+            full_output = full_output + "\n" + continuation
+
+        technical_design = strip_completion_marker(full_output)
         if not technical_design.strip():
             return StageResult(success=False, errors=["AI returned empty technical design"])
 

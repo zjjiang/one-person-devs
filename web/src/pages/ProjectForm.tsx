@@ -172,7 +172,7 @@ export default function ProjectForm() {
   })();
 
   return (
-    <>
+    <div style={{ maxWidth: 720, margin: "0 auto" }}>
       <Typography.Title level={4}>
         {isEdit ? "编辑项目" : "新建项目"}
       </Typography.Title>
@@ -183,7 +183,7 @@ export default function ProjectForm() {
           showIcon
           icon={<Spin size="small" />}
           message="正在克隆仓库，请稍候..."
-          style={{ marginBottom: 16, maxWidth: 720 }}
+          style={{ marginBottom: 16 }}
         />
       )}
       {cloneStatus.status === "error" && (
@@ -192,16 +192,11 @@ export default function ProjectForm() {
           showIcon
           message="工作区初始化失败"
           description={cloneStatus.error}
-          style={{ marginBottom: 16, maxWidth: 720 }}
+          style={{ marginBottom: 16 }}
         />
       )}
 
-      <Form
-        form={form}
-        layout="vertical"
-        onFinish={onFinish}
-        style={{ maxWidth: 720 }}
-      >
+      <Form form={form} layout="vertical" onFinish={onFinish}>
         <Row gutter={16}>
           <Col span={12}>
             <Form.Item
@@ -356,6 +351,6 @@ export default function ProjectForm() {
           </Space>
         </Form.Item>
       </Form>
-    </>
+    </div>
   );
 }

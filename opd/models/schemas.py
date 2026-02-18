@@ -34,6 +34,7 @@ class CreateStoryRequest(BaseModel):
 
 
 class QAPair(BaseModel):
+    id: int | None = None
     question: str
     answer: str
 
@@ -70,3 +71,15 @@ class ChatRequest(BaseModel):
 
 class UpdateDocRequest(BaseModel):
     content: str
+
+
+class RollbackRequest(BaseModel):
+    target_stage: str
+
+    @field_validator("target_stage")
+    @classmethod
+    def validate_target_stage(cls, v: str) -> str:
+        allowed = {"preparing", "clarifying", "planning", "designing"}
+        if v not in allowed:
+            raise ValueError(f"target_stage must be one of {allowed}")
+        return v
