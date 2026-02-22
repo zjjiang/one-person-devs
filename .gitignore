@@ -26,3 +26,7 @@ opd.yaml
 htmlcov/
 .ruff_cache/
 node_modules/
+.vite/
+web/tsconfig.tsbuildinfo
+tasks-*.json
+test_register.html

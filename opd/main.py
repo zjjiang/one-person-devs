@@ -127,6 +127,7 @@ def create_app(config_path: str = "opd.yaml") -> FastAPI:
     from opd.api.projects import router as projects_router
     from opd.api.settings import router as settings_router
     from opd.api.stories import router as stories_router
+    from opd.api.users import router as users_router
     from opd.api.webhooks import router as webhooks_router
 
     app.include_router(catalog_router)
@@ -134,7 +135,14 @@ def create_app(config_path: str = "opd.yaml") -> FastAPI:
     app.include_router(settings_router)
     app.include_router(projects_router)
     app.include_router(stories_router)
+    app.include_router(users_router, prefix="/api/users", tags=["users"])
     app.include_router(webhooks_router)
+
+    # Static files for vanilla JS pages (e.g., register.html)
+    static_dir = Path("web/public")
+    if static_dir.is_dir():
+        app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+        logger.info(f"Static files mounted at /static from {static_dir}")
 
     # SPA: serve frontend build if web/dist/ exists
     spa_dir = Path("web/dist")

@@ -146,7 +146,8 @@ def build_coding_prompt(story: Story, project: Project, round_: Round) -> tuple[
     """Return (system_prompt, user_prompt) for AI coding."""
     system = (
         "你是一个资深开发者。根据详细设计文档，按照 Task 顺序编写代码。\n"
-        "严格按照设计文档实现，不要添加额外功能。\n\n"
+        "严格按照设计文档实现，不要添加额外功能。\n"
+        "编码完成后，请输出一段总结，包括：改动概述、如何运行和测试、注意事项。\n\n"
         + build_project_context(project)
     )
     user = f"## 详细设计\n{_resolve_doc(story, project, 'detailed_design', 'detailed_design.md')}"

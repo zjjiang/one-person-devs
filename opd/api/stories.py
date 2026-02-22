@@ -26,6 +26,7 @@ from opd.db.models import (
     StoryStatus,
 )
 from opd.db.session import get_session_factory
+from opd.engine.hashing import STAGE_INPUT_MAP, compute_stage_input_hash, should_skip_ai
 from opd.engine.context import (
     build_clarifying_chat_prompt,
     build_designing_chat_prompt,
@@ -35,11 +36,20 @@ from opd.engine.context import (
 )
 from opd.engine.orchestrator import Orchestrator
 from opd.engine.stages.base import StageContext
-from opd.engine.workspace import delete_doc, list_docs, read_doc, write_doc
+from opd.engine.workspace import (
+    create_coding_branch,
+    delete_doc,
+    discard_branch,
+    generate_branch_name,
+    list_docs,
+    read_doc,
+    write_doc,
+)
 from opd.models.schemas import (
     AnswerRequest,
     ChatRequest,
     CreateStoryRequest,
+    IterateRequest,
     RollbackRequest,
     UpdateDocRequest,
     UpdatePrdRequest,
@@ -54,6 +64,8 @@ _OUTPUT_FIELDS = {
     "prd": "prd.md",
     "technical_design": "technical_design.md",
     "detailed_design": "detailed_design.md",
+    "coding_report": "coding_report.md",
+    "test_guide": "test_guide.md",
 }
 
 
@@ -163,6 +175,30 @@ def _start_ai_stage(story_id: int, orch: Orchestrator) -> None:
                         capabilities=registry, publish=publish,
                     )
 
+                    # Create coding branch if entering coding stage without one
+                    if status == "coding" and not active_round.branch_name:
+                        branch = generate_branch_name(
+                            story.id, active_round.round_number,
+                        )
+                        try:
+                            await create_coding_branch(story.project, branch)
+                            active_round.branch_name = branch
+                            # Persist branch_name in a separate transaction
+                            # so it's immediately visible to other sessions
+                            async with session_factory() as db2:
+                                async with db2.begin():
+                                    await db2.execute(
+                                        update(Round)
+                                        .where(Round.id == active_round.id)
+                                        .values(branch_name=branch)
+                                    )
+                            logger.info("Created coding branch %s", branch)
+                        except Exception:
+                            logger.warning(
+                                "Branch creation failed, coding without branch",
+                                exc_info=True,
+                            )
+
                     done_event: dict | None = None
                     try:
                         stage_result = await stage.execute(ctx)
@@ -181,6 +217,15 @@ def _start_ai_stage(story_id: int, orch: Orchestrator) -> None:
                                 )
                             logger.info("Stage [%s] completed for story %s",
                                         status, story_id)
+                            if stage_result.next_status:
+                                story.status = stage_result.next_status
+                            # Store input hash for change detection
+                            input_hash = compute_stage_input_hash(
+                                story, story.project, status,
+                            )
+                            if input_hash and status in STAGE_INPUT_MAP:
+                                hash_field = STAGE_INPUT_MAP[status][2]
+                                setattr(story, hash_field, input_hash)
                             done_event = {"type": "done"}
                         else:
                             error_msg = "; ".join(stage_result.errors)
@@ -190,7 +235,7 @@ def _start_ai_stage(story_id: int, orch: Orchestrator) -> None:
                         logger.exception("AI stage exception for story %s", story_id)
                         done_event = {"type": "error", "content": str(e)}
                     finally:
-                        orch._running_tasks.pop(round_id, None)
+                        orch._running_tasks.pop(str(story_id), None)
             # Transaction committed — now publish done/error so frontend reads fresh data
             if done_event:
                 await orch._publish(round_id, done_event)
@@ -403,17 +448,22 @@ async def get_story(
     prd_content = read_doc(story.project, story, "prd.md") if story.prd else None
     td_content = read_doc(story.project, story, "technical_design.md") if story.technical_design else None
     dd_content = read_doc(story.project, story, "detailed_design.md") if story.detailed_design else None
+    cr_content = read_doc(story.project, story, "coding_report.md") if story.coding_report else None
+    tg_content = read_doc(story.project, story, "test_guide.md") if story.test_guide else None
 
     return {
         "id": story.id,
         "title": story.title,
         "status": story.status.value,
         "feature_tag": story.feature_tag,
+        "repo_url": story.project.repo_url,
         "raw_input": story.raw_input,
         "prd": prd_content,
         "confirmed_prd": story.confirmed_prd,
         "technical_design": td_content,
         "detailed_design": dd_content,
+        "coding_report": cr_content,
+        "test_guide": tg_content,
         "current_round": story.current_round,
         "tasks": [
             {
@@ -479,12 +529,20 @@ async def confirm_stage(
     story.status = next_status
     await db.flush()
 
-    # Trigger next AI stage if applicable
+    # Trigger next AI stage if applicable — skip if input unchanged and output exists
     ai_stages = {"clarifying", "planning", "designing", "coding"}
+    skipped_ai = False
     if next_status in ai_stages:
-        _start_ai_stage(story.id, orch)
+        if should_skip_ai(story, story.project, next_status):
+            skipped_ai = True
+            logger.info(
+                "Skipping AI for stage [%s] story %s — input unchanged",
+                next_status, story_id,
+            )
+        else:
+            _start_ai_stage(story.id, orch)
 
-    return {"id": story.id, "status": next_status}
+    return {"id": story.id, "status": next_status, "skipped_ai": skipped_ai}
 
 
 @router.post("/stories/{story_id}/reject")
@@ -500,20 +558,22 @@ async def reject_stage(story_id: int, db: AsyncSession = Depends(get_db),
 
 
 # Fields/files to clear when rolling back to a given stage.
-# db_fields: Story model fields to set to None
-# doc_files: filenames to delete from workspace
+# With input-hash change detection, we preserve downstream docs so that
+# confirm_stage can skip AI when the input hasn't changed.
+# Only clear fields that are logically invalid after rollback.
 _ROLLBACK_CLEAR: dict[str, dict] = {
     "preparing": {
-        "db_fields": ["confirmed_prd", "technical_design", "detailed_design"],
-        "doc_files": ["technical_design.md", "detailed_design.md"],
+        # User is re-editing PRD — confirmed version is invalid
+        "db_fields": ["confirmed_prd"],
+        "doc_files": [],
     },
     "clarifying": {
-        "db_fields": ["technical_design", "detailed_design"],
-        "doc_files": ["technical_design.md", "detailed_design.md"],
+        "db_fields": [],
+        "doc_files": [],
     },
     "planning": {
-        "db_fields": ["detailed_design"],
-        "doc_files": ["detailed_design.md"],
+        "db_fields": [],
+        "doc_files": [],
     },
     "designing": {
         "db_fields": [],
@@ -589,7 +649,6 @@ async def rollback_story(
     story.status = target
     await db.flush()
 
-    _start_ai_stage(story.id, orch)
     return {"id": story.id, "status": target}
 
 
@@ -685,39 +744,85 @@ async def chat_message(
 
 
 @router.post("/stories/{story_id}/iterate")
-async def iterate_story(story_id: int, db: AsyncSession = Depends(get_db),
+async def iterate_story(story_id: int, req: IterateRequest | None = None,
+                        db: AsyncSession = Depends(get_db),
                         orch: Orchestrator = Depends(get_orch)):
-    """Iterate: go back to coding with same branch/PR."""
+    """Iterate: close current round with feedback, create iterate round, re-code."""
     result = await db.execute(
-        select(Story).where(Story.id == story_id).options(selectinload(Story.rounds))
+        select(Story).where(Story.id == story_id).options(
+            selectinload(Story.rounds), selectinload(Story.project),
+        )
     )
     story = result.scalar_one_or_none()
-    if not story or story.status != StoryStatus.verifying:
-        return {"error": "Can only iterate from verifying status"}, 400
+    if not story or story.status not in (StoryStatus.verifying, StoryStatus.coding):
+        return {"error": "Can only iterate from verifying/coding status"}, 400
+
+    orch.stop_task(str(story_id))
+    feedback = req.feedback if req else ""
+
+    # Close current round with feedback
+    active_round = next(
+        (r for r in story.rounds if r.status == RoundStatus.active), None,
+    )
+    old_branch = active_round.branch_name if active_round else ""
+    if active_round:
+        active_round.status = RoundStatus.closed
+        active_round.close_reason = feedback or None
+
+    # Create new iterate round — inherit branch (continue on same branch)
+    story.current_round += 1
+    new_round = Round(
+        story_id=story.id,
+        round_number=story.current_round,
+        type=RoundType.iterate,
+        status=RoundStatus.active,
+        branch_name=old_branch,
+    )
+    db.add(new_round)
 
     story.status = StoryStatus.coding
+    story.coding_report = None
+    story.test_guide = None
+    story.coding_input_hash = None
+    delete_doc(story.project, story, "coding_report.md")
+    delete_doc(story.project, story, "test_guide.md")
     await db.flush()
     _start_ai_stage(story.id, orch)
     return {"id": story.id, "status": "coding", "action": "iterate"}
 
 
 @router.post("/stories/{story_id}/restart")
-async def restart_story(story_id: int, db: AsyncSession = Depends(get_db),
+async def restart_story(story_id: int, req: IterateRequest | None = None,
+                        db: AsyncSession = Depends(get_db),
                         orch: Orchestrator = Depends(get_orch)):
     """Restart: new round, new branch, close old PR."""
     result = await db.execute(
-        select(Story).where(Story.id == story_id).options(selectinload(Story.rounds))
+        select(Story).where(Story.id == story_id).options(
+            selectinload(Story.rounds), selectinload(Story.project),
+        )
     )
     story = result.scalar_one_or_none()
-    if not story or story.status != StoryStatus.verifying:
-        return {"error": "Can only restart from verifying status"}, 400
+    if not story or story.status not in (StoryStatus.verifying, StoryStatus.coding):
+        return {"error": "Can only restart from verifying/coding status"}, 400
+
+    orch.stop_task(str(story_id))
+    feedback = req.feedback if req else ""
 
     # Close current round
     active_round = next((r for r in story.rounds if r.status == RoundStatus.active), None)
+    old_branch = active_round.branch_name if active_round else ""
     if active_round:
         active_round.status = RoundStatus.closed
+        active_round.close_reason = feedback or None
 
-    # Create new round
+    # Discard old coding branch
+    if old_branch:
+        try:
+            await discard_branch(story.project, old_branch)
+        except Exception:
+            logger.warning("Failed to discard branch %s", old_branch, exc_info=True)
+
+    # Create new round (no branch — goes back to designing)
     story.current_round += 1
     new_round = Round(
         story_id=story.id,
@@ -727,8 +832,12 @@ async def restart_story(story_id: int, db: AsyncSession = Depends(get_db),
     )
     db.add(new_round)
     story.status = StoryStatus.designing
+    story.coding_report = None
+    story.test_guide = None
+    story.coding_input_hash = None
+    delete_doc(story.project, story, "coding_report.md")
+    delete_doc(story.project, story, "test_guide.md")
     await db.flush()
-    _start_ai_stage(story.id, orch)
     return {"id": story.id, "status": "designing", "action": "restart"}
 
 
@@ -877,7 +986,8 @@ async def save_story_doc(
     rel_path = write_doc(story.project, story, filename, req.content)
     # Update the corresponding DB field if it maps to a known doc
     field_map = {"prd.md": "prd", "technical_design.md": "technical_design",
-                 "detailed_design.md": "detailed_design"}
+                 "detailed_design.md": "detailed_design", "coding_report.md": "coding_report",
+                 "test_guide.md": "test_guide"}
     db_field = field_map.get(filename)
     if db_field:
         setattr(story, db_field, rel_path)

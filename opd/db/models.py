@@ -83,6 +83,19 @@ class WorkspaceStatus(str, enum.Enum):
 # --- Models ---
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)
+    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
 class Project(Base):
     __tablename__ = "projects"
 
@@ -183,6 +196,12 @@ class Story(Base):
     confirmed_prd: Mapped[str | None] = mapped_column(Text, nullable=True)
     technical_design: Mapped[str | None] = mapped_column(Text, nullable=True)
     detailed_design: Mapped[str | None] = mapped_column(Text, nullable=True)
+    coding_report: Mapped[str | None] = mapped_column(Text, nullable=True)
+    test_guide: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Input hashes — SHA-256 of upstream doc content when stage last ran
+    planning_input_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    designing_input_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    coding_input_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()

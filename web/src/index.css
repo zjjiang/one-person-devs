@@ -1,0 +1,19 @@
+/* Fix Ant Design Tabs to work within flex containers */
+.flex-tabs {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.flex-tabs > .ant-tabs-content-holder {
+  flex: 1;
+  min-height: 0;
+}
+.flex-tabs > .ant-tabs-content-holder > .ant-tabs-content {
+  height: 100%;
+}
+.flex-tabs > .ant-tabs-content-holder > .ant-tabs-content > .ant-tabs-tabpane-active {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}

@@ -83,3 +83,7 @@ class RollbackRequest(BaseModel):
         if v not in allowed:
             raise ValueError(f"target_stage must be one of {allowed}")
         return v
+
+
+class IterateRequest(BaseModel):
+    feedback: str = ""

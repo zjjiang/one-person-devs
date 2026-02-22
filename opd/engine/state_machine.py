@@ -11,7 +11,7 @@ VALID_TRANSITIONS: dict[str, list[str]] = {
     StoryStatus.designing: [
         StoryStatus.coding, StoryStatus.preparing, StoryStatus.clarifying, StoryStatus.planning,
     ],
-    StoryStatus.coding: [StoryStatus.verifying],
+    StoryStatus.coding: [StoryStatus.verifying, StoryStatus.designing],
     StoryStatus.verifying: [StoryStatus.done, StoryStatus.coding, StoryStatus.designing],
 }
 

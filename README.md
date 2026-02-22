@@ -8,17 +8,25 @@ AI 驱动的工程迭代流程编排平台。将 AI 编码能力（Claude Code�
 
 OPD 编排整个开发流程，让开发者专注于决策（审查方案、Review 代码、验证功能），AI 负责执行（分析需求、生成方案、编写代码、响应反馈）。
 
+## 技术栈
+
+- 后端：FastAPI + SQLAlchemy 2.0 (async) + Pydantic v2 + MySQL (aiomysql) + Alembic
+- 前端：React 18 + TypeScript + Ant Design + Vite
+- AI 集成：claude-code-sdk + PyGithub/GitPython
+- 包管理：uv (Python >= 3.11) + npm (Node.js)
+
 ## Story 状态机
 
 ```
 Preparing → Clarifying → Planning → Designing → Coding → Verifying → Done
-                                        ↑                    |
-                                        └── restart ─────────┤
-                                                  ↑          |
-                                        Coding ←─ iterate ──┘
+                 ↑            ↑          ↑                    |
+                 |            |          └── restart ─────────┤
+                 |            |                    ↑          |
+                 |            |          Coding ←─ iterate ──┘
+                 └────────────┴── rollback (任意前置阶段可回退)
 ```
 
-每个阶段都有人工门禁（Human Gate），确保 human-in-the-loop。
+每个阶段都有人工门禁（Human Gate），确保 human-in-the-loop。支持阶段回退（rollback）到任意前置阶段。
 
 ## 架构
 
@@ -27,12 +35,12 @@ Preparing → Clarifying → Planning → Designing → Coding → Verifying →
 | 层级 | 说明 | 示例 |
 |------|------|------|
 | Capability | 能力抽象（AI、SCM、CI 等） | ai, scm, ci, doc, sandbox |
-| Provider | 能力的具体实现 | claude_code, github, github_actions |
+| Provider | 能力的具体实现 | claude_code, ducc, github, github_actions |
 | Environment | 外部依赖（外网/内网） | GitHub API, Docker |
 
 ### Capability 系统
 
-每个 Stage 声明所需的 `required_capabilities` 和 `optional_capabilities`。执行前自动进行 Preflight 健康检查，required 不可用则阻断，optional 不可用则降级。
+每个 Stage 声明所需的 `required_capabilities` 和 `optional_capabilities`。执行前自动进行 Preflight 健康检查，required 不可用则阻断，optional 不可用则降级。支持全局配置和项目级覆盖。
 
 ### 项目结构
 
@@ -42,16 +50,22 @@ opd/
 ├── config.py              # 配置加载 (opd.yaml + env interpolation)
 ├── middleware.py           # Pure ASGI 中间件 (SSE passthrough)
 ├── api/                   # HTTP API 路由
+│   ├── deps.py            # 依赖注入 (get_db, get_orch)
 │   ├── projects.py        # 项目 CRUD
 │   ├── stories.py         # Story 生命周期 + SSE 流式
+│   ├── capabilities.py    # 能力健康检查 + 配置
+│   ├── settings.py        # 全局能力配置
+│   ├── users.py           # 用户注册
 │   └── webhooks.py        # GitHub webhook
 ├── db/                    # 数据库
 │   ├── models.py          # SQLAlchemy 2.0 async 模型
 │   └── session.py         # 异步会话管理
 ├── engine/                # 编排引擎
 │   ├── orchestrator.py    # 核心编排器 + SSE pub/sub
-│   ├── state_machine.py   # 状态机
+│   ├── state_machine.py   # 状态机 + 阶段回退
 │   ├── context.py         # AI prompt 构建
+│   ├── workspace.py       # Git 工作区操作 (分支管理、文档读写)
+│   ├── hashing.py         # 输入变更检测 (SHA-256)
 │   └── stages/            # 6 个阶段实现
 │       ├── base.py        # Stage 基类 (validate/execute/validate_output)
 │       ├── preparing.py   # 需求 → PRD
@@ -64,17 +78,23 @@ opd/
 │   ├── base.py            # Provider/Capability 基类 + HealthStatus
 │   └── registry.py        # 注册表 + Preflight + 懒加载
 ├── providers/             # Provider 实现
-│   ├── ai/claude_code.py  # Claude Code SDK
-│   ├── scm/github.py      # GitHub (PyGithub + GitPython)
+│   ├── ai/                # AI (Claude Code, DUCC)
+│   ├── scm/               # SCM (GitHub)
 │   ├── ci/                # CI (GitHub Actions)
 │   ├── doc/               # 文档 (Local, Notion)
 │   ├── sandbox/           # 沙盒 (Docker)
 │   └── notification/      # 通知 (Web)
-├── models/schemas.py      # Pydantic 请求/响应模型
-└── web/                   # Web UI (Jinja2 + vanilla JS)
-    ├── routes.py
-    ├── templates/
-    └── static/
+└── models/schemas.py      # Pydantic 请求/响应模型
+
+web/                       # React 前端 (独立 SPA)
+├── src/
+│   ├── api/               # API 客户端
+│   ├── components/        # React 组件 (AIConsole, ChatPanel, PrdEditor 等)
+│   ├── pages/             # 页面 (ProjectList, StoryDetail, GlobalSettings 等)
+│   ├── types.ts           # TypeScript 类型定义
+│   └── main.tsx           # 应用入口
+├── package.json
+└── vite.config.ts
 ```
 
 ## 快速开始
@@ -82,7 +102,8 @@ opd/
 ### 环境要求
 
 - Python >= 3.11
-- uv (包管理)
+- Node.js >= 18
+- uv (Python 包管理)
 - GitHub Token (`repo` scope)
 - Anthropic API Key
 
@@ -92,8 +113,11 @@ opd/
 git clone https://github.com/zjjiang/one-person-devs.git
 cd one-person-devs
 
-# 安装依赖
+# 后端依赖
 uv sync --extra ai --extra dev
+
+# 前端依赖
+cd web && npm install && cd ..
 
 # 复制配置
 cp opd.yaml.example opd.yaml
@@ -123,27 +147,31 @@ uv run alembic upgrade head
 ### 启动
 
 ```bash
-uv run opd serve
-# 或
-uv run opd serve --reload  # 开发模式
+# 后端
+uv run opd serve --reload  # 开发模式，默认端口 8765
+
+# 前端（另一个终端）
+cd web && npm run dev       # Vite 开发服务器
 ```
 
-访问 http://localhost:8765
+访问 http://localhost:8765（后端 API）/ http://localhost:5173（前端开发）
 
 ## 使用流程
 
-1. **创建项目** — 填写项目名称、GitHub 仓库地址
+1. **创建项目** — 填写项目名称、GitHub 仓库地址、工作区目录
 2. **创建 Story** — 描述需求
-3. **Preparing** — AI 生成 PRD，人工确认
+3. **Preparing** — AI 生成 PRD，支持多轮对话优化，人工确认
 4. **Clarifying** — AI 提问澄清需求，人工回答后确认
-5. **Planning** — AI 生成技术方案，人工确认
+5. **Planning** — AI 生成技术方案，支持多轮对话优化，人工确认
 6. **Designing** — AI 生成详细设计（任务拆分），人工确认
-7. **Coding** — AI 编码，自动创建 PR
-8. **Verifying** — Code Review + CI + 沙盒验证，通过则完成；不通过可 iterate（回到 Coding）或 restart（回到 Designing）
+7. **Coding** — AI 编码，自动创建分支和 PR，实时 SSE 流式输出
+8. **Verifying** — Code Review + 验证，通过则完成；不通过可 iterate（回到 Coding）或 restart（回到 Designing）
+
+任意阶段均可回退（rollback）到前置阶段重新执行。
 
 ## 扩展 Provider
 
-实现 `Provider` 基类，在 `_BUILTIN_PROVIDERS` 中注册，修改 `opd.yaml` 切换：
+实现对应 Capability 的 `Provider` 基类，在 `_BUILTIN_PROVIDERS` 中注册，修改 `opd.yaml` 切换：
 
 ```python
 # opd/providers/scm/my_scm.py
@@ -172,6 +200,9 @@ uv run ruff check opd/ tests/
 
 # 创建迁移
 uv run alembic revision --autogenerate -m "description"
+
+# 前端构建
+cd web && npm run build
 ```
 
 ## License

@@ -76,11 +76,14 @@ export interface Story {
   title: string;
   status: string;
   feature_tag: string | null;
+  repo_url: string;
   raw_input: string;
   prd: string | null;
   confirmed_prd: string | null;
   technical_design: string | null;
   detailed_design: string | null;
+  coding_report: string | null;
+  test_guide: string | null;
   current_round: number;
   tasks: TaskItem[];
   rounds: RoundItem[];

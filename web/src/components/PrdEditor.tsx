@@ -1,3 +1,4 @@
+import { useRef, useEffect, useState } from "react";
 import MDEditor from "@uiw/react-md-editor";
 import { Button, Space } from "antd";
 import { SaveOutlined } from "@ant-design/icons";
@@ -17,11 +18,38 @@ export default function PrdEditor({
   saving,
   readOnly,
 }: Props) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [editorHeight, setEditorHeight] = useState(500);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const h = entries[0]?.contentRect.height;
+      if (h && h > 0) setEditorHeight(h);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   return (
-    <div data-color-mode="light" style={{ overflow: "hidden" }}>
+    <div
+      data-color-mode="light"
+      style={{
+        overflow: "hidden",
+        display: "flex",
+        flexDirection: "column",
+        flex: 1,
+      }}
+    >
       {!readOnly && (
         <Space
-          style={{ marginBottom: 8, justifyContent: "flex-end", width: "100%" }}
+          style={{
+            marginBottom: 8,
+            justifyContent: "flex-end",
+            width: "100%",
+            flexShrink: 0,
+          }}
         >
           <Button
             type="primary"
@@ -36,19 +64,21 @@ export default function PrdEditor({
       )}
 
       {readOnly ? (
-        <div style={{ maxHeight: 600, overflow: "auto" }}>
+        <div style={{ flex: 1, overflow: "auto" }}>
           <MDEditor.Markdown
             source={value || ""}
             style={{ padding: 16, minHeight: 300 }}
           />
         </div>
       ) : (
-        <MDEditor
-          value={value}
-          onChange={(v) => onChange(v || "")}
-          height={500}
-          preview="live"
-        />
+        <div ref={containerRef} style={{ flex: 1, minHeight: 0 }}>
+          <MDEditor
+            value={value}
+            onChange={(v) => onChange(v || "")}
+            height={editorHeight}
+            preview="preview"
+          />
+        </div>
       )}
     </div>
   );
