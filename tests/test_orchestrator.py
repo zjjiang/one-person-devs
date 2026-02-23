@@ -56,7 +56,7 @@ class TestOrchestrator:
 
     async def test_publish(self, orchestrator):
         q = orchestrator.subscribe("round-1")
-        await orchestrator._publish("round-1", {"type": "test", "msg": "hello"})
+        await orchestrator.publish("round-1", {"type": "test", "msg": "hello"})
         event = q.get_nowait()
         assert event["type"] == "test"
 

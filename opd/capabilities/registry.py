@@ -20,18 +20,8 @@ _BUILTIN_PROVIDERS: dict[str, dict[str, str]] = {
     "scm": {
         "github": "opd.providers.scm.github:GitHubProvider",
     },
-    "ci": {
-        "github_actions": "opd.providers.ci.github_actions:GitHubActionsProvider",
-    },
     "doc": {
         "local": "opd.providers.doc.local:LocalDocProvider",
-        "notion": "opd.providers.doc.notion:NotionDocProvider",
-    },
-    "sandbox": {
-        "docker_local": "opd.providers.sandbox.docker_local:DockerLocalProvider",
-    },
-    "notification": {
-        "web": "opd.providers.notification.web:WebNotificationProvider",
     },
 }
 
@@ -59,6 +49,19 @@ class PreflightResult:
 
     def add_warning(self, msg: str):
         self.warnings.append(msg)
+
+
+def build_capability_overrides(cap_configs) -> list[dict]:
+    """Build override dicts from ProjectCapabilityConfig records."""
+    return [
+        {
+            "capability": c.capability,
+            "enabled": c.enabled,
+            "provider_override": c.provider_override,
+            "config_override": c.config_override,
+        }
+        for c in cap_configs
+    ]
 
 
 class CapabilityRegistry:
@@ -248,7 +251,7 @@ class CapabilityRegistry:
 
         return new_reg
 
-    def _resolve_provider_name(self, category: str, provider: Provider) -> str:
+    def resolve_provider_name(self, category: str, provider: Provider) -> str:
         """Resolve the provider name from a provider instance."""
         cls_name = type(provider).__name__
         for pname, dotted in _BUILTIN_PROVIDERS.get(category, {}).items():

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from opd.api.capability_utils import CAPABILITY_LABELS, find_schema, mask_config, unmask_passwords
 from opd.api.deps import get_db, get_orch
 from opd.db.models import ProjectCapabilityConfig
 from opd.engine.orchestrator import Orchestrator
@@ -13,33 +14,6 @@ from opd.models.schemas import SaveCapabilityConfigRequest, TestCapabilityReques
 
 router = APIRouter(prefix="/api/projects/{project_id}/capabilities", tags=["capabilities"])
 catalog_router = APIRouter(prefix="/api/capabilities", tags=["capabilities"])
-
-_MASK = "***"
-
-
-def _mask_config(config: dict | None, schema: list[dict]) -> dict:
-    """Mask password-type fields in config for API responses."""
-    if not config:
-        return {}
-    password_fields = {f["name"] for f in schema if f.get("type") == "password"}
-    masked = {}
-    for k, v in config.items():
-        masked[k] = _MASK if k in password_fields and v else v
-    return masked
-
-
-def _find_schema(available: list[dict], capability: str,
-                 provider_name: str | None) -> list[dict]:
-    """Find CONFIG_SCHEMA for a given capability/provider."""
-    for cap in available:
-        if cap["capability"] == capability:
-            for p in cap["providers"]:
-                if provider_name and p["name"] == provider_name:
-                    return p.get("config_schema", [])
-            # Return first provider's schema as fallback
-            if cap["providers"]:
-                return cap["providers"][0].get("config_schema", [])
-    return []
 
 
 @router.get("")
@@ -64,14 +38,14 @@ async def get_capabilities(
         sc = saved.get(cap_name)
         # Determine which provider to use for schema lookup
         provider_name = sc.provider_override if sc else None
-        schema = _find_schema(available, cap_name, provider_name)
+        schema = find_schema(available, cap_name, provider_name)
         items.append({
             "capability": cap_name,
             "providers": cap["providers"],
             "saved": {
                 "enabled": sc.enabled if sc else True,
                 "provider_override": sc.provider_override if sc else None,
-                "config_override": _mask_config(
+                "config_override": mask_config(
                     sc.config_override, schema
                 ) if sc else {},
             },
@@ -101,11 +75,8 @@ async def save_capability_config(
     config_override = body.config_override or {}
     if existing and existing.config_override:
         available = orch.capabilities.list_available()
-        schema = _find_schema(available, capability, body.provider_override)
-        password_fields = {f["name"] for f in schema if f.get("type") == "password"}
-        for field_name in password_fields:
-            if config_override.get(field_name) == _MASK:
-                config_override[field_name] = existing.config_override.get(field_name)
+        schema = find_schema(available, capability, body.provider_override)
+        config_override = unmask_passwords(config_override, existing.config_override, schema)
 
     if existing:
         existing.enabled = body.enabled
@@ -119,7 +90,7 @@ async def save_capability_config(
             provider_override=body.provider_override,
             config_override=config_override,
         ))
-    await db.commit()
+    await db.flush()
     return {"ok": True}
 
 
@@ -144,11 +115,8 @@ async def test_capability(
     saved = result.scalar_one_or_none()
     if saved and saved.config_override:
         available = orch.capabilities.list_available()
-        schema = _find_schema(available, capability, body.provider)
-        password_fields = {f["name"] for f in schema if f.get("type") == "password"}
-        for field_name in password_fields:
-            if config.get(field_name) == _MASK:
-                config[field_name] = saved.config_override.get(field_name)
+        schema = find_schema(available, capability, body.provider)
+        config = unmask_passwords(config, saved.config_override, schema)
 
     # Inject project repo_url for SCM providers to test repo access
     from opd.db.models import Project
@@ -170,15 +138,6 @@ async def test_capability(
 
 
 # --- Global catalog (no project_id needed) ---
-
-CAPABILITY_LABELS = {
-    "ai": "AI 编码",
-    "scm": "代码管理",
-    "ci": "持续集成",
-    "doc": "文档管理",
-    "sandbox": "沙箱环境",
-    "notification": "通知推送",
-}
 
 
 @catalog_router.get("/catalog")
@@ -226,5 +185,5 @@ async def batch_save_capabilities(
                 provider_override=item.provider_override,
                 config_override=item.config_override or {},
             ))
-    await db.commit()
+    await db.flush()
     return {"ok": True}

@@ -50,14 +50,14 @@ HTTP requests → FastAPI routers (`opd/api/`) → `Orchestrator` (singleton via
 - **`orchestrator.py`** — The central file. Coordinates providers, state machine, and DB to drive a Story through its lifecycle. Long-running AI operations run as background `asyncio.Task`s tracked in `_running_tasks` dict. The `_run_ai_background()` method supports `pre_start` (clone/branch) and `post_complete` (commit/push/create PR) callbacks. Includes a pub/sub mechanism (`subscribe()`/`unsubscribe()`/`_publish()`) using `asyncio.Queue` for real-time SSE streaming of AI messages to the frontend.
 - **`state_machine.py`** — Status transitions defined in `VALID_TRANSITIONS` dict. Flow: `preparing → clarifying → planning → designing → coding → verifying → done`. Supports rollback to any prior stage. `ROLLBACK_ACTIONS` dict maps specific transitions to action types (iterate/restart).
 - **`context.py`** — Builds AI prompts (system prompt, coding prompt, plan prompt, revision prompt).
-- **`workspace.py`** — Git workspace operations: branch management, document file I/O (PRD, plan, design docs stored in workspace).
+- **`workspace/`** — Package with 3 modules: `paths.py` (directory resolution, doc I/O), `scanner.py` (source code scanning), `git.py` (clone, branch management). Re-exports all public functions via `__init__.py`.
 - **`hashing.py`** — SHA-256 input change detection. Computes hashes of stage inputs to skip unchanged AI stages, avoiding redundant API calls.
 
 ### Provider System (`opd/providers/`)
 
 All external dependencies are abstracted through `Provider` base class (`base.py`). `ProviderRegistry` (`registry.py`) uses lazy-import factory pattern — built-in providers are stored as dotted-path strings in `_BUILTIN_PROVIDERS` and only imported on first use. Supports project-level capability overrides and global configuration. To add a new provider: implement the base class, register in `_BUILTIN_PROVIDERS`, configure `type` in `opd.yaml`.
 
-Current providers: `ai/claude_code`, `ai/ducc`, `scm/github`, `ci/github_actions`, `doc/local`, `doc/notion`, `sandbox/docker_local`, `notification/web`.
+Current providers: `ai/claude_code`, `ai/ducc`, `scm/github`, `doc/local`.
 
 ### Dependency Injection
 
@@ -75,9 +75,13 @@ Centralized in `logs/` directory via `_setup_logging()` in `main.py`. Two rotati
 
 ### API Routes (`opd/api/`)
 
-- **`stories.py`** — Story lifecycle: CRUD, confirm/rollback/iterate/restart actions, SSE streaming, chat for document refinement.
+- **`stories.py`** — Story core lifecycle: CRUD, confirm/reject, chat, SSE streaming, preflight.
+- **`stories_tasks.py`** — Background AI task functions (`_start_ai_stage`, `_start_chat_ai`).
+- **`stories_actions.py`** — State transition actions: rollback, iterate, restart, stop.
+- **`stories_docs.py`** — Story document CRUD (list/read/write docs).
 - **`projects.py`** — Project CRUD with workspace management.
 - **`capabilities.py`** — Capability health checks and configuration.
+- **`capability_utils.py`** — Shared helpers for config masking/unmasking across capability endpoints.
 - **`settings.py`** — Global capability configuration.
 - **`users.py`** — User registration.
 - **`webhooks.py`** — GitHub webhook handler.

@@ -24,12 +24,14 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           style={{ color: "#fff", fontSize: 18, cursor: "pointer" }}
           onClick={() => navigate("/")}
         >
-          OPD v2
+          SoloForge
         </Typography.Text>
         <Tooltip title="全局设置">
           <Button
             type="text"
-            icon={<SettingOutlined style={{ fontSize: 18, color: "#ffffffd9" }} />}
+            icon={
+              <SettingOutlined style={{ fontSize: 18, color: "#ffffffd9" }} />
+            }
             onClick={() => navigate("/settings")}
           />
         </Tooltip>

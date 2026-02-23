@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from opd.db.models import StoryStatus
 
+
+def ensure_status_value(status) -> str:
+    """Extract string value from StoryStatus enum or pass through strings."""
+    return status.value if not isinstance(status, str) else status
+
 VALID_TRANSITIONS: dict[str, list[str]] = {
     StoryStatus.preparing: [StoryStatus.clarifying],
     StoryStatus.clarifying: [StoryStatus.planning, StoryStatus.preparing],
@@ -36,8 +41,8 @@ class StateMachine:
 
     def transition(self, story, to_status: str) -> str | None:
         """Transition a story to a new status. Returns rollback action if applicable."""
-        from_status = story.status if isinstance(story.status, str) else story.status.value
-        to_value = to_status if isinstance(to_status, str) else to_status.value
+        from_status = ensure_status_value(story.status)
+        to_value = ensure_status_value(to_status)
 
         if not self.can_transition(from_status, to_value):
             raise InvalidTransitionError(from_status, to_value)

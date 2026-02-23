@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Coroutine
+from collections.abc import AsyncIterator, Callable, Coroutine
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from opd.capabilities.registry import CapabilityRegistry
     from opd.db.models import Project, Round, Story
+
+logger = logging.getLogger(__name__)
+
+MAX_CONTINUATIONS = 3
 
 
 @dataclass
@@ -61,3 +66,56 @@ class Stage(ABC):
         Returns a list of error messages (empty = all good).
         """
         return []
+
+    @staticmethod
+    async def _collect_with_continuation(
+        ctx: StageContext,
+        ai_method: Callable[[str, str], AsyncIterator[dict]],
+        system_prompt: str,
+        user_prompt: str,
+        label: str,
+    ) -> str:
+        """Collect AI output with automatic continuation for truncated responses.
+
+        Args:
+            ctx: Stage context (for publish callback).
+            ai_method: Bound AI provider method (e.g., ai.provider.plan).
+            system_prompt: System prompt for the AI call.
+            user_prompt: Initial user prompt.
+            label: Human-readable label for log messages (e.g., "Technical design").
+        """
+        from opd.engine.context import (
+            build_continuation_prompt,
+            is_output_complete,
+            strip_completion_marker,
+        )
+
+        collected: list[str] = []
+        async for msg in ai_method(system_prompt, user_prompt):
+            if ctx.publish:
+                await ctx.publish(msg)
+            if msg.get("type") == "assistant":
+                collected.append(msg["content"])
+
+        full_output = "\n".join(collected)
+
+        for i in range(MAX_CONTINUATIONS):
+            if is_output_complete(full_output) or not full_output.strip():
+                break
+            logger.info(
+                "%s output truncated (round %d/%d, %d chars), continuing...",
+                label, i + 1, MAX_CONTINUATIONS, len(full_output),
+            )
+            cont_prompt = build_continuation_prompt(full_output)
+            cont_collected: list[str] = []
+            async for msg in ai_method(system_prompt, cont_prompt):
+                if ctx.publish:
+                    await ctx.publish(msg)
+                if msg.get("type") == "assistant":
+                    cont_collected.append(msg["content"])
+            continuation = "\n".join(cont_collected)
+            if not continuation.strip():
+                break
+            full_output = full_output + "\n" + continuation
+
+        return strip_completion_marker(full_output)

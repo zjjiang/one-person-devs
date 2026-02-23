@@ -14,7 +14,6 @@ class VerifyingStage(Stage):
     (confirm / iterate / restart). This stage simply signals readiness."""
 
     required_capabilities = ["scm"]
-    optional_capabilities = ["ci", "sandbox"]
 
     async def validate_preconditions(self, ctx: StageContext) -> list[str]:
         errors: list[str] = []

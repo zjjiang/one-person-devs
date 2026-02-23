@@ -14,7 +14,6 @@ class PreparingStage(Stage):
     """Generate a structured PRD from the story's raw input via AI."""
 
     required_capabilities = ["ai"]
-    optional_capabilities = ["doc"]
 
     async def validate_preconditions(self, ctx: StageContext) -> list[str]:
         errors: list[str] = []

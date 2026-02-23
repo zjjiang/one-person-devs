@@ -6,7 +6,6 @@ import hashlib
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import pytest
 
 from opd.engine.hashing import (
     STAGE_INPUT_MAP,

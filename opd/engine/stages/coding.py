@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from opd.db.models import StoryStatus
 from opd.engine.context import build_coding_prompt
 from opd.engine.stages.base import Stage, StageContext, StageResult
-from opd.engine.workspace import read_doc, resolve_work_dir
+from opd.engine.workspace import resolve_work_dir
 
 logger = logging.getLogger(__name__)
 
@@ -131,12 +131,6 @@ class CodingStage(Stage):
         ai = ctx.capabilities.get("ai")
         if not ai:
             return StageResult(success=False, errors=["AI capability not available"])
-
-        dd = ctx.story.detailed_design or ""
-        if dd.startswith("docs/"):
-            file_content = read_doc(ctx.project, ctx.story, "detailed_design.md")
-            if file_content:
-                dd = file_content
 
         system_prompt, user_prompt = build_coding_prompt(
             ctx.story, ctx.project, ctx.round,

@@ -266,7 +266,7 @@ async def verify_repo(
     scm_cap = orch.capabilities.get("scm")
     if scm_cap:
         config = {**scm_cap.provider.config, "repo_url": repo_url}
-        provider_name = orch.capabilities._resolve_provider_name("scm", scm_cap.provider)
+        provider_name = orch.capabilities.resolve_provider_name("scm", scm_cap.provider)
     else:
         # 2) Fallback: check GlobalCapabilityConfig table
         from opd.db.models import GlobalCapabilityConfig

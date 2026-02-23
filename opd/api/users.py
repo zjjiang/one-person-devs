@@ -7,8 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import bcrypt
 import re
 
+from opd.api.deps import get_db
 from opd.db.models import User
-from opd.db.session import get_session
 
 router = APIRouter()
 
@@ -55,7 +55,7 @@ class RegisterResponse(BaseModel):
 @router.post("/register", status_code=status.HTTP_201_CREATED, response_model=RegisterResponse)
 async def register_user(
     request: RegisterRequest,
-    db: AsyncSession = Depends(get_session),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     用户注册端点

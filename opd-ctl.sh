@@ -8,12 +8,12 @@ case "$1" in
     curl -s "$OPD_URL/api/projects"
     ;;
   list-stories)
-    curl -s "$OPD_URL/api/stories?project_id=$2"
+    curl -s "$OPD_URL/api/projects/$2/stories"
     ;;
   create-story)
-    curl -s -X POST "$OPD_URL/api/stories" \
+    curl -s -X POST "$OPD_URL/api/projects/$2/stories" \
       -H "Content-Type: application/json" \
-      -d "{\"project_id\": $2, \"title\": \"$3\", \"raw_input\": \"$4\"}"
+      -d "{\"title\": \"$3\", \"raw_input\": \"$4\"}"
     ;;
   story-status)
     curl -s "$OPD_URL/api/stories/$2"
@@ -34,6 +34,7 @@ case "$1" in
     echo "  $0 list-projects"
     echo "  $0 list-stories 6"
     echo "  $0 create-story 6 '用户登录' '需要一个简单的用户名密码登录功能'"
+    echo "  (注: list-stories 和 create-story 的第二个参数是 project_id)"
     echo "  $0 story-status 8"
     echo "  $0 confirm 8"
     echo "  $0 stream 8"
