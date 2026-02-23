@@ -28,6 +28,7 @@ import {
   QuestionCircleOutlined,
   CodeOutlined,
   BranchesOutlined,
+  MergeCellsOutlined,
   HomeOutlined,
 } from "@ant-design/icons";
 import { useParams, Link } from "react-router-dom";
@@ -41,6 +42,7 @@ import {
   sendChatMessage,
   saveStoryDoc,
   rollbackStory,
+  mergeStoryPR,
 } from "../api/stories";
 import type { Story } from "../types";
 import { STAGE_LABELS } from "../types";
@@ -243,6 +245,16 @@ export default function StoryDetail() {
     }
   };
 
+  const handleMerge = async () => {
+    try {
+      const res = await mergeStoryPR(story.id);
+      message.success(`PR #${res.pr_number} 已合并`);
+      refresh();
+    } catch {
+      message.error("合并失败");
+    }
+  };
+
   const handleRegenerate = async () => {
     try {
       await rejectStage(story.id);
@@ -302,7 +314,10 @@ export default function StoryDetail() {
     setDrawerTab("chat");
   };
 
-  // Unanswered clarification count for badge
+  // Check if there's an open PR on any round
+  const hasOpenPR = story.rounds.some((r) =>
+    r.pull_requests.some((pr) => pr.status === "open"),
+  );
   const unansweredCount = story.clarifications.filter((c) => !c.answer).length;
   const hasClarifyQuestions =
     story.status === "clarifying" && story.clarifications.length > 0;
@@ -472,6 +487,12 @@ export default function StoryDetail() {
               </Tooltip>
             </>
           )}
+          {hasOpenPR &&
+            (story.status === "verifying" || story.status === "done") && (
+              <Button icon={<MergeCellsOutlined />} onClick={handleMerge}>
+                Merge PR
+              </Button>
+            )}
           {showDocActions && (
             <Button type="primary" onClick={handleConfirm}>
               {story.status === "clarifying" ? "确认定稿" : "确认 & 下一步"}

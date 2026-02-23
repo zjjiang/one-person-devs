@@ -53,3 +53,9 @@ export const verifyRepo = (repo_url: string) =>
     method: "POST",
     body: JSON.stringify({ repo_url }),
   });
+
+export const syncContext = (id: number) =>
+  request<{ status: string; message: string }>(
+    `/api/projects/${id}/sync-context`,
+    { method: "POST" },
+  );

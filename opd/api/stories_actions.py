@@ -10,9 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from opd.api.deps import get_db, get_orch
-from opd.api.stories_tasks import _start_ai_stage
+from opd.api.stories_tasks import _build_project_registry, _start_ai_stage
 from opd.db.models import (
     AIMessage,
+    PRStatus,
+    PullRequest,
     Round,
     RoundStatus,
     RoundType,
@@ -20,7 +22,7 @@ from opd.db.models import (
     StoryStatus,
 )
 from opd.engine.orchestrator import Orchestrator
-from opd.engine.workspace import delete_doc, discard_branch
+from opd.engine.workspace import delete_doc, discard_branch, pull_main
 from opd.models.schemas import IterateRequest, RollbackRequest
 
 logger = logging.getLogger(__name__)
@@ -227,3 +229,59 @@ async def stop_story(story_id: int, orch: Orchestrator = Depends(get_orch)):
     """Emergency stop current AI task."""
     stopped = orch.stop_task(str(story_id))
     return {"stopped": stopped}
+
+
+@actions_router.post("/stories/{story_id}/merge")
+async def merge_story_pr(
+    story_id: int,
+    db: AsyncSession = Depends(get_db),
+    orch: Orchestrator = Depends(get_orch),
+):
+    """Merge the open PR for a story."""
+    result = await db.execute(
+        select(Story).where(Story.id == story_id).options(
+            selectinload(Story.project),
+            selectinload(Story.rounds).selectinload(Round.pull_requests),
+        )
+    )
+    story = result.scalar_one_or_none()
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+    if story.status not in (StoryStatus.verifying, StoryStatus.done):
+        raise HTTPException(status_code=400, detail="只能在验证或完成阶段合并 PR")
+
+    # Find the open PR on the active round
+    open_pr: PullRequest | None = None
+    for rnd in story.rounds:
+        for pr in rnd.pull_requests:
+            if pr.status == PRStatus.open:
+                open_pr = pr
+                break
+        if open_pr:
+            break
+
+    if not open_pr:
+        raise HTTPException(status_code=400, detail="没有可合并的 PR")
+
+    registry = await _build_project_registry(db, orch, story.project_id)
+    scm_cap = registry.get("scm")
+    if not scm_cap:
+        raise HTTPException(status_code=400, detail="SCM 能力未配置")
+
+    try:
+        await scm_cap.provider.merge_pull_request(
+            story.project.repo_url, open_pr.pr_number,
+        )
+        open_pr.status = PRStatus.merged
+    except Exception as e:
+        logger.exception("Failed to merge PR #%s for story %s", open_pr.pr_number, story_id)
+        raise HTTPException(status_code=500, detail=f"合并失败: {e}")
+
+    # Pull main to keep workspace up to date
+    try:
+        await pull_main(story.project)
+    except Exception:
+        logger.warning("pull_main failed after merge for story %s", story_id, exc_info=True)
+
+    await db.flush()
+    return {"id": story.id, "pr_number": open_pr.pr_number, "status": "merged"}

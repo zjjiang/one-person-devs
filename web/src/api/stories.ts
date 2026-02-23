@@ -90,3 +90,9 @@ export const saveStoryDoc = (id: number, filename: string, content: string) =>
       body: JSON.stringify({ content }),
     },
   );
+
+export const mergeStoryPR = (id: number) =>
+  request<{ id: number; pr_number: number; status: string }>(
+    `/api/stories/${id}/merge`,
+    { method: "POST" },
+  );

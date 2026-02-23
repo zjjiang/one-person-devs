@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -14,7 +16,7 @@ from opd.api.deps import get_db, get_orch
 from opd.db.models import Project, WorkspaceStatus
 from opd.db.session import get_session_factory
 from opd.engine.orchestrator import Orchestrator
-from opd.engine.workspace import clone_workspace
+from opd.engine.workspace import clone_workspace, commit_and_push_file, resolve_work_dir, scan_workspace
 from opd.models.schemas import CreateProjectRequest
 
 logger = logging.getLogger(__name__)
@@ -290,3 +292,186 @@ async def verify_repo(
         return {"healthy": status.healthy, "message": status.message}
     finally:
         await provider.cleanup()
+
+
+@router.post("/{project_id}/sync-context")
+async def sync_context(
+    project_id: int,
+    db: AsyncSession = Depends(get_db),
+    orch: Orchestrator = Depends(get_orch),
+):
+    """Launch background task to scan workspace, call AI to generate CLAUDE.md, commit and push."""
+    result = await db.execute(select(Project).where(Project.id == project_id))
+    project = result.scalar_one_or_none()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if project.workspace_status != WorkspaceStatus.ready:
+        raise HTTPException(status_code=400, detail="工作区未就绪")
+
+    task_key = f"project_sync_{project_id}"
+    if orch.is_task_running(task_key):
+        return {"status": "running", "message": "同步任务已在运行中"}
+
+    _launch_sync_context(project_id, orch)
+    return {"status": "started", "message": "同步任务已启动"}
+
+
+@router.get("/{project_id}/sync-stream")
+async def sync_stream(
+    project_id: int,
+    orch: Orchestrator = Depends(get_orch),
+):
+    """SSE endpoint for streaming sync-context progress."""
+    task_key = f"project_sync_{project_id}"
+
+    async def event_generator():
+        queue = orch.subscribe(task_key)
+        try:
+            while True:
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=15)
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                    if event.get("type") in ("done", "error"):
+                        break
+                except asyncio.TimeoutError:
+                    yield ": heartbeat\n\n"
+        finally:
+            orch.unsubscribe(task_key, queue)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+def _launch_sync_context(project_id: int, orch: Orchestrator) -> None:
+    """Launch sync-context as a background task with SSE streaming."""
+    task_key = f"project_sync_{project_id}"
+
+    async def _run() -> None:
+        await asyncio.sleep(0.3)
+        session_factory = get_session_factory()
+        done_event: dict | None = None
+        try:
+            async with session_factory() as db:
+                async with db.begin():
+                    result = await db.execute(
+                        select(Project).where(Project.id == project_id)
+                    )
+                    project = result.scalar_one_or_none()
+                    if not project:
+                        done_event = {"type": "error", "content": "项目不存在"}
+                        return
+
+                    await orch.publish(task_key, {
+                        "type": "system", "content": "正在扫描项目工作区...",
+                    })
+
+                    source_ctx = scan_workspace(project, max_depth=4, max_chars=12000)
+                    if not source_ctx:
+                        done_event = {"type": "error", "content": "工作区扫描为空"}
+                        return
+
+                    work_dir = resolve_work_dir(project)
+                    existing_claude_md = ""
+                    claude_md_path = work_dir / "CLAUDE.md"
+                    if claude_md_path.is_file():
+                        existing_claude_md = claude_md_path.read_text(encoding="utf-8")
+
+                    await orch.publish(task_key, {
+                        "type": "system", "content": "工作区扫描完成，正在调用 AI 生成 CLAUDE.md...",
+                    })
+
+                    from opd.api.stories_tasks import _build_project_registry
+                    registry = await _build_project_registry(db, orch, project_id)
+                    ai_cap = registry.get("ai")
+                    if not ai_cap:
+                        done_event = {"type": "error", "content": "AI 能力未配置"}
+                        return
+
+                    claude_md = await _ai_generate_claude_md(
+                        ai_cap, project, source_ctx, existing_claude_md,
+                        publish=lambda msg: orch.publish(task_key, msg),
+                    )
+
+                    await orch.publish(task_key, {
+                        "type": "system", "content": "AI 生成完成，正在提交并推送到远端...",
+                    })
+
+                    pushed = await commit_and_push_file(
+                        project, "CLAUDE.md", "chore: update CLAUDE.md project context",
+                        content=claude_md,
+                    )
+                    if pushed:
+                        done_event = {
+                            "type": "done",
+                            "content": "CLAUDE.md 已生成并推送到远端",
+                        }
+                    else:
+                        (work_dir / "CLAUDE.md").write_text(claude_md, encoding="utf-8")
+                        done_event = {
+                            "type": "done",
+                            "content": "CLAUDE.md 已生成（推送失败，仅本地）",
+                        }
+                    logger.info("Generated CLAUDE.md for project %s", project_id)
+        except Exception as e:
+            logger.exception("Sync context failed for project %s", project_id)
+            done_event = {"type": "error", "content": str(e)}
+        finally:
+            orch.unregister_task(task_key)
+            if done_event:
+                await orch.publish(task_key, done_event)
+
+    task = asyncio.create_task(_run())
+    orch.register_task(task_key, task)
+
+
+async def _ai_generate_claude_md(
+    ai_cap, project: Project, source_context: str, existing: str,
+    *, publish=None,
+) -> str:
+    """Call AI to generate a comprehensive CLAUDE.md."""
+    system_prompt = (
+        "你是一个资深工程师。根据项目的源码结构和关键文件内容，"
+        "生成一份 CLAUDE.md 文件，供 AI 编码助手理解项目上下文。\n\n"
+        "CLAUDE.md 应包含：\n"
+        "- 项目概述（一句话描述）\n"
+        "- 技术栈\n"
+        "- 项目架构（请求流、核心模块、数据流）\n"
+        "- 常用命令（启动、测试、构建、lint）\n"
+        "- 关键目录和文件说明\n"
+        "- 编码规范和注意事项\n\n"
+        "直接输出 Markdown 内容，不要包含 ```markdown 代码块包裹。"
+    )
+
+    parts = []
+    if project.description:
+        parts.append(f"## 项目描述\n{project.description}")
+    if project.tech_stack:
+        parts.append(f"## 技术栈\n{project.tech_stack}")
+    if project.architecture:
+        parts.append(f"## 架构\n{project.architecture}")
+    parts.append(source_context)
+    if existing:
+        parts.append(f"## 现有 CLAUDE.md（供参考，可保留有价值的内容）\n{existing}")
+
+    user_prompt = "\n\n".join(parts)
+
+    collected: list[str] = []
+    async for msg in ai_cap.provider.plan(system_prompt, user_prompt):
+        if msg.get("type") == "assistant" and msg.get("content"):
+            collected.append(msg["content"])
+            if publish:
+                await publish({"type": "assistant", "content": msg["content"]})
+
+    return "\n".join(collected).strip() if collected else _fallback_claude_md(project, source_context)
+
+
+def _fallback_claude_md(project: Project, source_context: str) -> str:
+    """Fallback: generate CLAUDE.md without AI from project metadata."""
+    sections = [f"# {project.name}\n"]
+    if project.description:
+        sections.append(f"## 项目描述\n{project.description}\n")
+    if project.tech_stack:
+        sections.append(f"## 技术栈\n{project.tech_stack}\n")
+    if project.architecture:
+        sections.append(f"## 架构\n{project.architecture}\n")
+    sections.append(source_context)
+    return "\n".join(sections)

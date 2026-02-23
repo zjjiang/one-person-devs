@@ -230,3 +230,89 @@ async def discard_branch(project: Any, branch_name: str) -> None:
         logger.info("Deleted remote branch %s", branch_name)
     else:
         logger.warning("Could not delete remote branch %s: %s", branch_name, err)
+
+
+async def pull_main(project: Any) -> bool:
+    """Checkout main and pull latest. Returns True on success."""
+    work_dir = _is_git_workspace(project)
+    if not work_dir:
+        return False
+    rc, _, err = await _git(work_dir, "checkout", "main")
+    if rc != 0:
+        logger.warning("Failed to checkout main: %s", err)
+        return False
+    rc, _, err = await _git(work_dir, "pull", "--ff-only", timeout=60, network=True)
+    if rc != 0:
+        logger.warning("Failed to pull main: %s", err)
+        return False
+    logger.info("Pulled latest main in %s", work_dir)
+    return True
+
+
+async def commit_and_push_file(
+    project: Any, filepath: str, message: str,
+    *, content: str | None = None, target_branch: str = "main",
+) -> bool:
+    """Write (optionally), commit, and push a file to target_branch.
+
+    If content is provided, the file is written AFTER checking out target_branch
+    to avoid losing it during branch switch.
+    Safely stashes uncommitted work and restores the original branch afterwards.
+    """
+    work_dir = _is_git_workspace(project)
+    if not work_dir:
+        return False
+
+    # Remember current branch
+    rc, original_branch, _ = await _git(work_dir, "rev-parse", "--abbrev-ref", "HEAD")
+    if rc != 0:
+        return False
+    original_branch = original_branch.strip()
+
+    need_switch = original_branch != target_branch
+    stashed = False
+
+    try:
+        if need_switch:
+            # Stash uncommitted changes to safely switch branches
+            rc, stash_out, _ = await _git(work_dir, "stash", "push", "-m", "opd-sync-context")
+            stashed = rc == 0 and "No local changes" not in stash_out
+
+            rc, _, err = await _git(work_dir, "checkout", target_branch)
+            if rc != 0:
+                logger.warning("Failed to checkout %s: %s", target_branch, err)
+                return False
+
+        # Write file content after checkout so it exists on the target branch
+        if content is not None:
+            (work_dir / filepath).write_text(content, encoding="utf-8")
+
+        rc, _, err = await _git(work_dir, "add", filepath)
+        if rc != 0:
+            logger.warning("git add failed for %s: %s", filepath, err)
+            return False
+
+        # Check if there are staged changes (avoid empty commits)
+        rc, stdout, _ = await _git(work_dir, "diff", "--cached", "--name-only")
+        if rc == 0 and not stdout.strip():
+            logger.info("No changes to commit for %s", filepath)
+            return True
+
+        rc, _, err = await _git(work_dir, "commit", "-m", message)
+        if rc != 0:
+            logger.warning("git commit failed: %s", err)
+            return False
+
+        rc, _, err = await _git(work_dir, "push", timeout=60, network=True)
+        if rc != 0:
+            logger.warning("git push failed: %s", err)
+            return False
+
+        logger.info("Committed and pushed %s to %s in %s", filepath, target_branch, work_dir)
+        return True
+    finally:
+        # Restore original branch
+        if need_switch:
+            await _git(work_dir, "checkout", original_branch)
+            if stashed:
+                await _git(work_dir, "stash", "pop")

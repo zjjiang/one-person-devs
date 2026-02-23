@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Card,
   Descriptions,
@@ -10,17 +10,23 @@ import {
   Tabs,
   message,
   Breadcrumb,
+  Drawer,
+  FloatButton,
 } from "antd";
 import {
   PlusOutlined,
   SettingOutlined,
   EditOutlined,
   ReloadOutlined,
+  SyncOutlined,
   HomeOutlined,
+  LoadingOutlined,
+  CodeOutlined,
 } from "@ant-design/icons";
 import { useNavigate, useParams, Link } from "react-router-dom";
-import { getProject, initWorkspace } from "../api/projects";
+import { getProject, initWorkspace, syncContext } from "../api/projects";
 import type { Project } from "../types";
+import SyncConsole from "../components/SyncConsole";
 
 const statusColor: Record<string, string> = {
   preparing: "default",
@@ -43,6 +49,8 @@ export default function ProjectDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [project, setProject] = useState<Project | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const refresh = () => getProject(Number(id)).then(setProject);
 
@@ -59,6 +67,27 @@ export default function ProjectDetail() {
       message.error("操作失败");
     }
   };
+
+  const handleSyncContext = async () => {
+    setSyncing(true);
+    setDrawerOpen(true);
+    try {
+      await syncContext(Number(id));
+    } catch {
+      message.error("同步上下文启动失败");
+      setSyncing(false);
+    }
+  };
+
+  const handleSyncDone = useCallback((msg: string) => {
+    setSyncing(false);
+    message.success(msg || "同步完成");
+  }, []);
+
+  const handleSyncError = useCallback((msg: string) => {
+    setSyncing(false);
+    message.error(msg || "同步失败");
+  }, []);
 
   if (!project) return null;
 
@@ -89,6 +118,14 @@ export default function ProjectDetail() {
           {project.name}
         </Typography.Title>
         <Space>
+          <Button
+            icon={<SyncOutlined spin={syncing} />}
+            onClick={handleSyncContext}
+            loading={syncing}
+            disabled={project.workspace_status !== "ready"}
+          >
+            同步上下文
+          </Button>
           <Button
             icon={<EditOutlined />}
             onClick={() => navigate(`/projects/${id}/edit`)}
@@ -220,6 +257,65 @@ export default function ProjectDetail() {
           ]}
         />
       </Card>
+
+      {/* Floating action button — sync log */}
+      <FloatButton.Group shape="square" style={{ insetInlineEnd: 24 }}>
+        <FloatButton
+          icon={syncing ? <LoadingOutlined /> : <CodeOutlined />}
+          tooltip="编码日志"
+          type={drawerOpen ? "primary" : "default"}
+          onClick={() => setDrawerOpen(true)}
+        />
+      </FloatButton.Group>
+
+      <Drawer
+        title="编码日志"
+        placement="right"
+        width={480}
+        mask={false}
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        styles={{
+          body: {
+            padding: 0,
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+          },
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            padding: "8px 16px",
+            flexShrink: 0,
+            borderBottom: "1px solid #f0f0f0",
+          }}
+        >
+          <Button size="small" type="primary">
+            {syncing && <LoadingOutlined style={{ marginRight: 4 }} />}
+            编码日志
+          </Button>
+        </div>
+        <div
+          style={{
+            flex: 1,
+            display: "flex",
+            flexDirection: "column",
+            minHeight: 0,
+          }}
+        >
+          {drawerOpen && (
+            <SyncConsole
+              projectId={Number(id)}
+              active={true}
+              onDone={handleSyncDone}
+              onError={handleSyncError}
+            />
+          )}
+        </div>
+      </Drawer>
     </>
   );
 }

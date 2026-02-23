@@ -17,6 +17,7 @@ from opd.db.models import (
     Clarification,
     Project,
     ProjectCapabilityConfig,
+    PullRequest,
     Round,
     RoundStatus,
     Story,
@@ -37,10 +38,54 @@ from opd.engine.workspace import (
     DOC_FIELD_MAP,
     create_coding_branch,
     generate_branch_name,
+    resolve_work_dir,
     write_doc,
 )
 
 logger = logging.getLogger(__name__)
+
+
+async def _post_coding_create_pr(
+    db, story: Story, active_round: Round, registry,
+) -> None:
+    """After coding succeeds: commit, push, and create a PR."""
+    branch = active_round.branch_name
+    if not branch:
+        logger.warning("No branch for story %s, skipping PR creation", story.id)
+        return
+
+    scm_cap = registry.get("scm")
+    if not scm_cap:
+        logger.warning("SCM capability not available, skipping PR creation for story %s", story.id)
+        return
+
+    work_dir = str(resolve_work_dir(story.project))
+    repo_url = story.project.repo_url
+
+    try:
+        await scm_cap.provider.commit_and_push(
+            work_dir, branch, f"feat: {story.title} (story #{story.id})",
+        )
+        logger.info("Committed and pushed branch %s for story %s", branch, story.id)
+    except Exception:
+        logger.warning("commit_and_push failed for story %s", story.id, exc_info=True)
+        return
+
+    try:
+        pr_info = await scm_cap.provider.create_pull_request(
+            repo_url, branch,
+            title=f"[OPD] {story.title}",
+            body=f"Auto-created by OPD for Story #{story.id}",
+        )
+        db.add(PullRequest(
+            round_id=active_round.id,
+            repo_url=repo_url,
+            pr_number=pr_info["pr_number"],
+            pr_url=pr_info["pr_url"],
+        ))
+        logger.info("Created PR #%s for story %s", pr_info["pr_number"], story.id)
+    except Exception:
+        logger.warning("create_pull_request failed for story %s", story.id, exc_info=True)
 
 
 def _save_clarifications(db, story: Story, raw_text: str) -> None:
@@ -186,6 +231,11 @@ def _start_ai_stage(story_id: int, orch: Orchestrator) -> None:
                             if input_hash and status in STAGE_INPUT_MAP:
                                 hash_field = STAGE_INPUT_MAP[status][2]
                                 setattr(story, hash_field, input_hash)
+                            # Auto-create PR after coding completes
+                            if status == "coding":
+                                await _post_coding_create_pr(
+                                    db, story, active_round, registry,
+                                )
                             done_event = {"type": "done"}
                         else:
                             error_msg = "; ".join(stage_result.errors)

@@ -7,7 +7,7 @@ import time
 
 logger = logging.getLogger(__name__)
 
-STREAMING_SUFFIXES = ("/stream", "/logs")
+STREAMING_SUFFIXES = ("/stream", "/sync-stream", "/logs")
 
 
 class LoggingMiddleware:

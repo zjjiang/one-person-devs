@@ -1,34 +1,42 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import MessageList, { type StreamMessage } from "./MessageList";
 
 interface Props {
-  storyId: number;
+  projectId: number;
   active: boolean;
-  onDone?: () => void;
+  onDone?: (msg: string) => void;
+  onError?: (msg: string) => void;
 }
 
-export default function AIConsole({ storyId, active, onDone }: Props) {
+export default function SyncConsole({
+  projectId,
+  active,
+  onDone,
+  onError,
+}: Props) {
   const [messages, setMessages] = useState<StreamMessage[]>([]);
   const [running, setRunning] = useState(true);
-  const esRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
     if (!active) return;
 
-    const es = new EventSource(`/api/stories/${storyId}/stream`);
-    esRef.current = es;
+    const es = new EventSource(`/api/projects/${projectId}/sync-stream`);
 
     es.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data) as StreamMessage;
         setMessages((prev) => [...prev, msg]);
-        if (msg.type === "done" || msg.type === "error") {
+        if (msg.type === "done") {
           setRunning(false);
           es.close();
-          onDone?.();
+          onDone?.(msg.content || "");
+        } else if (msg.type === "error") {
+          setRunning(false);
+          es.close();
+          onError?.(msg.content || "未知错误");
         }
       } catch {
-        // ignore parse errors
+        // ignore
       }
     };
 
@@ -38,15 +46,15 @@ export default function AIConsole({ storyId, active, onDone }: Props) {
     };
 
     return () => es.close();
-  }, [storyId, active, onDone]);
+  }, [projectId, active, onDone, onError]);
 
   return (
     <MessageList
       messages={messages}
       variant="dark"
       loading={running && messages.length > 0}
-      loadingText="AI 运行中..."
-      emptyText="等待 AI 输出..."
+      loadingText="AI 生成中..."
+      emptyText="正在准备同步..."
     />
   );
 }

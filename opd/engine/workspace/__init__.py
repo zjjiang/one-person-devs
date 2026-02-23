@@ -3,9 +3,11 @@
 from opd.engine.workspace.git import (
     checkout_branch,
     clone_workspace,
+    commit_and_push_file,
     create_coding_branch,
     discard_branch,
     generate_branch_name,
+    pull_main,
 )
 from opd.engine.workspace.paths import (
     DOC_FIELD_MAP,
@@ -26,11 +28,13 @@ __all__ = [
     "DOC_FILENAME_MAP",
     "checkout_branch",
     "clone_workspace",
+    "commit_and_push_file",
     "create_coding_branch",
     "delete_doc",
     "discard_branch",
     "generate_branch_name",
     "list_docs",
+    "pull_main",
     "read_doc",
     "resolve_work_dir",
     "scan_workspace",

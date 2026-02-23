@@ -6,7 +6,7 @@ import logging
 import re
 from typing import TYPE_CHECKING
 
-from opd.engine.workspace import read_doc
+from opd.engine.workspace import read_doc, resolve_work_dir
 
 if TYPE_CHECKING:
     from opd.db.models import Project, Round, Story
@@ -66,6 +66,20 @@ def _tasks_block(story: Story) -> str:
     return "## Task 列表\n" + "\n".join(lines)
 
 
+def _read_claude_md(project: Project) -> str:
+    """Read CLAUDE.md from the project workspace root, if it exists."""
+    try:
+        work_dir = resolve_work_dir(project)
+        claude_md = work_dir / "CLAUDE.md"
+        if claude_md.is_file():
+            content = claude_md.read_text(encoding="utf-8").strip()
+            if content:
+                return f"## 项目上下文 (CLAUDE.md)\n{content}"
+    except Exception:
+        logger.debug("Failed to read CLAUDE.md for project %s", project.id, exc_info=True)
+    return ""
+
+
 def build_project_context(project: Project) -> str:
     """Build project-level context for AI prompts."""
     sections = [f"## 项目: {project.name}"]
@@ -78,6 +92,9 @@ def build_project_context(project: Project) -> str:
     rules = _rules_block(project)
     if rules:
         sections.append(rules)
+    claude_md = _read_claude_md(project)
+    if claude_md:
+        sections.append(claude_md)
     return "\n\n".join(sections)
 
 
