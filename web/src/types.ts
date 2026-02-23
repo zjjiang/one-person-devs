@@ -73,6 +73,8 @@ export interface ClarificationItem {
 
 export interface Story {
   id: number;
+  project_id: number;
+  project_name: string;
   title: string;
   status: string;
   feature_tag: string | null;

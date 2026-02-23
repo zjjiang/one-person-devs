@@ -9,14 +9,16 @@ import {
   Typography,
   Tabs,
   message,
+  Breadcrumb,
 } from "antd";
 import {
   PlusOutlined,
   SettingOutlined,
   EditOutlined,
   ReloadOutlined,
+  HomeOutlined,
 } from "@ant-design/icons";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, Link } from "react-router-dom";
 import { getProject, initWorkspace } from "../api/projects";
 import type { Project } from "../types";
 
@@ -62,6 +64,20 @@ export default function ProjectDetail() {
 
   return (
     <>
+      <Breadcrumb
+        style={{ marginBottom: 12 }}
+        items={[
+          {
+            title: (
+              <Link to="/">
+                <HomeOutlined /> 首页
+              </Link>
+            ),
+          },
+          { title: project.name },
+        ]}
+      />
+
       <Space
         style={{
           marginBottom: 16,

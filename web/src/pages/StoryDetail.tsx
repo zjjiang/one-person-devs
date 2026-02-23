@@ -19,6 +19,7 @@ import {
   Input,
   Radio,
   Tooltip,
+  Breadcrumb,
 } from "antd";
 import {
   LoadingOutlined,
@@ -27,8 +28,9 @@ import {
   QuestionCircleOutlined,
   CodeOutlined,
   BranchesOutlined,
+  HomeOutlined,
 } from "@ant-design/icons";
-import { useParams } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
 import {
   getStory,
   confirmStage,
@@ -386,6 +388,28 @@ export default function StoryDetail() {
         height: "calc(100vh - 112px)",
       }}
     >
+      {/* Breadcrumb navigation */}
+      <Breadcrumb
+        style={{ marginBottom: 8, flexShrink: 0 }}
+        items={[
+          {
+            title: (
+              <Link to="/">
+                <HomeOutlined /> 首页
+              </Link>
+            ),
+          },
+          {
+            title: (
+              <Link to={`/projects/${story.project_id}`}>
+                {story.project_name}
+              </Link>
+            ),
+          },
+          { title: story.title },
+        ]}
+      />
+
       {/* Compact header: title + status + actions */}
       <div
         style={{

@@ -98,6 +98,8 @@ async def get_story(
 
     return {
         "id": story.id,
+        "project_id": story.project_id,
+        "project_name": story.project.name,
         "title": story.title,
         "status": story.status.value,
         "feature_tag": story.feature_tag,
