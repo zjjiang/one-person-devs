@@ -1,357 +1,357 @@
 # OPD (One Person Devs)
 
-AI-driven engineering workflow orchestration platform integrating Claude Code into complete software iteration lifecycle.
+AI 驱动的工程迭代流程编排平台，将 Claude Code 集成到完整的软件迭代生命周期中。
 
-## Project Overview
+## 项目概述
 
-OPD orchestrates AI-powered software development workflows: requirement clarification → plan design → AI coding → code review → manual verification → merge. Built to streamline solo developer productivity with intelligent automation.
+OPD 编排 AI 驱动的软件开发工作流：需求澄清 → 方案规划 → AI 编码 → 代码审查 → 人工验证 → 合并。旨在通过智能自动化提升独立开发者的生产力。
 
-**Tech Stack**: FastAPI + SQLAlchemy 2.0 (async) + Pydantic v2 + MySQL (aiomysql) + Alembic + React 18 + TypeScript + Ant Design + Vite + claude-code-sdk + PyGithub/GitPython. Managed with `uv` (Python >= 3.11) + npm (frontend).
+**技术栈**: FastAPI + SQLAlchemy 2.0 (async) + Pydantic v2 + MySQL (aiomysql) + Alembic + React 18 + TypeScript + Ant Design + Vite + claude-code-sdk + PyGithub/GitPython。使用 `uv` (Python >= 3.11) + npm 管理依赖。
 
-## Commands
+## 常用命令
 
 ```bash
-# Start server (default port 8765)
+# 启动服务器（默认端口 8765）
 uv run python -m opd.main serve
-uv run opd serve                         # equivalent CLI entry point
-uv run opd serve --reload                # dev mode with auto-reload
+uv run opd serve                         # 等效的 CLI 入口
+uv run opd serve --reload                # 开发模式，自动重载
 
-# Frontend dev server
-cd web && npm run dev                    # Vite dev server (port 5173)
-cd web && npm run build                  # production build
+# 前端开发服务器
+cd web && npm run dev                    # Vite 开发服务器（端口 5173）
+cd web && npm run build                  # 生产构建
 
-# Database
-uv run alembic upgrade head              # run migrations
-uv run alembic revision --autogenerate -m "description"  # create migration
+# 数据库
+uv run alembic upgrade head              # 运行迁移
+uv run alembic revision --autogenerate -m "description"  # 创建迁移
 
-# Tests
-uv run pytest tests/                     # all tests
-uv run pytest tests/test_state_machine.py                # single file
-uv run pytest tests/test_state_machine.py::test_name     # single test
-uv run pytest -x                         # stop on first failure
+# 测试
+uv run pytest tests/                     # 所有测试
+uv run pytest tests/test_state_machine.py                # 单个文件
+uv run pytest tests/test_state_machine.py::test_name     # 单个测试
+uv run pytest -x                         # 遇到第一个失败即停止
 
 # Lint
-uv run ruff check opd/                   # check
-uv run ruff check --fix opd/             # auto-fix
+uv run ruff check opd/                   # 检查
+uv run ruff check --fix opd/             # 自动修复
 
-# Install dependencies
-uv sync --extra ai --extra dev           # backend
-cd web && npm install                    # frontend
+# 安装依赖
+uv sync --extra ai --extra dev           # 后端
+cd web && npm install                    # 前端
 ```
 
-## Architecture
+## 项目架构
 
-### Request Flow
+### 请求流
 
-HTTP requests → FastAPI routers (`opd/api/`) → `Orchestrator` (singleton via `opd/api/deps.py`) → Providers + DB. Frontend is a separate React SPA (`web/`) communicating via REST API + SSE.
+HTTP 请求 → FastAPI 路由 (`opd/api/`) → `Orchestrator`（通过 `opd/api/deps.py` 单例注入）→ Providers + DB。前端是独立的 React SPA (`web/`)，通过 REST API + SSE 通信。
 
-### Core Engine (`opd/engine/`)
+### 核心引擎 (`opd/engine/`)
 
-- **`orchestrator.py`** — The central coordinator (112 lines). Coordinates capabilities, state machine, and stage execution to drive a Story through its lifecycle. Delegates to stage implementations for actual work. Includes a pub/sub mechanism (`subscribe()`/`unsubscribe()`/`publish()`) using `asyncio.Queue` for real-time SSE streaming of AI messages to the frontend. Background task tracking via `_running_tasks` dict with `register_task()`/`unregister_task()` methods.
-- **`state_machine.py`** — Status transitions defined in `VALID_TRANSITIONS` dict. Flow: `preparing → clarifying → planning → designing → coding → verifying → done`. Supports rollback to any prior stage. `ROLLBACK_ACTIONS` dict defines specific rollback action types: `verifying → coding` = "iterate", `verifying → designing` = "restart".
-- **`context.py`** — Builds AI prompts (system prompt, coding prompt, plan prompt, revision prompt).
-- **`workspace/`** — Package with 3 modules: `paths.py` (directory resolution, doc I/O), `scanner.py` (source code scanning), `git.py` (clone, branch management, pull_main, discard_branch). Re-exports all public functions via `__init__.py` including `story_slug()` for branch naming.
-- **`hashing.py`** — SHA-256 input change detection. Computes hashes of stage inputs to skip unchanged AI stages, avoiding redundant API calls.
+- **`orchestrator.py`** — 中央协调器（112 行）。协调 capabilities、状态机和阶段执行，驱动 Story 完成生命周期。委托给阶段实现执行实际工作。包含发布/订阅机制（`subscribe()`/`unsubscribe()`/`publish()`），使用 `asyncio.Queue` 实现 AI 消息的实时 SSE 流式传输到前端。通过 `_running_tasks` 字典跟踪后台任务，提供 `register_task()`/`unregister_task()` 方法。
+- **`state_machine.py`** — 状态转换定义在 `VALID_TRANSITIONS` 字典中。流程：`preparing → clarifying → planning → designing → coding → verifying → done`。支持回退到任意前置阶段。`ROLLBACK_ACTIONS` 字典定义特定回退动作类型：`verifying → coding` = "iterate"，`verifying → designing` = "restart"。
+- **`context.py`** — 构建 AI 提示词（系统提示、编码提示、规划提示、修订提示）。
+- **`workspace/`** — 包含 3 个模块的包：`paths.py`（目录解析、文档 I/O）、`scanner.py`（源代码扫描）、`git.py`（克隆、分支管理、pull_main、discard_branch）。通过 `__init__.py` 重新导出所有公共函数，包括用于分支命名的 `story_slug()`。
+- **`hashing.py`** — SHA-256 输入变更检测。计算阶段输入的哈希值以跳过未变更的 AI 阶段，避免冗余 API 调用。
 
-### Capability System (`opd/capabilities/` + `opd/providers/`)
+### Capability 系统 (`opd/capabilities/` + `opd/providers/`)
 
-All external dependencies are abstracted through `Provider` base class (`opd/capabilities/base.py`). `CapabilityRegistry` (`opd/capabilities/registry.py`) uses lazy-import factory pattern — built-in providers are stored as dotted-path strings in `_BUILTIN_PROVIDERS` and only imported on first use. Supports project-level capability overrides and global configuration.
+所有外部依赖通过 `Provider` 基类抽象（`opd/capabilities/base.py`）。`CapabilityRegistry`（`opd/capabilities/registry.py`）使用懒加载工厂模式 — 内置 providers 以点分路径字符串存储在 `_BUILTIN_PROVIDERS` 中，仅在首次使用时导入。支持项目级 capability 覆盖和全局配置。
 
-**Architecture**: `opd/capabilities/` contains the registry and base classes, while `opd/providers/` contains actual provider implementations (ai/, scm/, doc/).
+**架构**: `opd/capabilities/` 包含注册表和基类，`opd/providers/` 包含实际 provider 实现（ai/、scm/、doc/）。
 
-Current providers: `ai/claude_code`, `ai/ducc`, `scm/github`, `doc/local`.
+当前 providers: `ai/claude_code`、`ai/ducc`、`scm/github`、`doc/local`。
 
-### Dependency Injection
+### 依赖注入
 
-The `Orchestrator` is a singleton initialized during app lifespan (`main.py:lifespan`). API routes get it via `Depends(get_orch)` and DB sessions via `Depends(get_db)` — both defined in `opd/api/deps.py`.
+`Orchestrator` 是在应用生命周期期间初始化的单例（`main.py:lifespan`）。API 路由通过 `Depends(get_orch)` 获取它，通过 `Depends(get_db)` 获取 DB 会话 — 两者都在 `opd/api/deps.py` 中定义。
 
-### Real-time SSE Streaming
+### 实时 SSE 流式传输
 
-The coding/revising phases use Server-Sent Events for live AI message streaming. Architecture: `Orchestrator._publish()` pushes events to `asyncio.Queue` subscribers → `GET /api/stories/{id}/stream` endpoint yields SSE data → browser `EventSource` renders messages in a terminal-style console. The `/stream` endpoint replays historical messages first, then streams live events with 15s heartbeat keepalive.
+编码/修订阶段使用服务器发送事件（SSE）进行实时 AI 消息流式传输。架构：`Orchestrator._publish()` 将事件推送到 `asyncio.Queue` 订阅者 → `GET /api/stories/{id}/stream` 端点生成 SSE 数据 → 浏览器 `EventSource` 在终端风格控制台中渲染消息。`/stream` 端点首先重放历史消息，然后流式传输实时事件，带有 15 秒心跳保活。
 
-**Important**: Middleware (`opd/middleware.py`) is implemented as pure ASGI classes (not `BaseHTTPMiddleware`) to avoid buffering `StreamingResponse`. Streaming paths (`/stream`, `/logs`) are passed through without any wrapping.
+**重要**: 中间件（`opd/middleware.py`）实现为纯 ASGI 类（而非 `BaseHTTPMiddleware`），以避免缓冲 `StreamingResponse`。流式路径（`/stream`、`/logs`）无需任何包装即可通过。
 
-### Logging
+### 日志
 
-Centralized in `logs/` directory via `_setup_logging()` in `main.py`. Two rotating log files: `opd.log` (all levels) and `error.log` (ERROR+ only). Configuration via `LoggingConfig` in `opd/config.py` and `logging` section in `opd.yaml`.
+通过 `main.py` 中的 `_setup_logging()` 集中在 `logs/` 目录。两个轮转日志文件：`opd.log`（所有级别）和 `error.log`（仅 ERROR+）。通过 `opd/config.py` 中的 `LoggingConfig` 和 `opd.yaml` 中的 `logging` 部分配置。
 
-### API Routes (`opd/api/`)
+### API 路由 (`opd/api/`)
 
-- **`stories.py`** — Story core lifecycle: CRUD, confirm/reject, chat, SSE streaming, preflight.
-- **`stories_tasks.py`** — Background AI task functions (`_start_ai_stage`, `_start_chat_ai`) with `pre_start` (clone/branch) and `post_complete` (commit/push/create PR) callbacks.
-- **`stories_actions.py`** — State transition actions: rollback, iterate, restart, stop.
-- **`stories_docs.py`** — Story document CRUD: `GET /api/stories/{id}/docs` (list), `GET /api/stories/{id}/docs/{filename}` (read), `PUT /api/stories/{id}/docs/{filename}` (write).
-- **`projects.py`** — Project CRUD with workspace management. Includes sync endpoints: `POST /api/projects/{id}/sync-context` (trigger sync), `GET /api/projects/{id}/sync-stream` (SSE stream).
-- **`capabilities.py`** — Capability health checks and configuration.
-- **`capability_utils.py`** — Shared helpers for config masking/unmasking across capability endpoints.
-- **`settings.py`** — Global capability configuration.
-- **`users.py`** — User registration.
-- **`webhooks.py`** — GitHub webhook handler.
+- **`stories.py`** — Story 核心生命周期：CRUD、确认/拒绝、聊天、SSE 流式传输、预检。
+- **`stories_tasks.py`** — 后台 AI 任务函数（`_start_ai_stage`、`_start_chat_ai`），带有 `pre_start`（克隆/分支）和 `post_complete`（提交/推送/创建 PR）回调。
+- **`stories_actions.py`** — 状态转换动作：回退、迭代、重启、停止。
+- **`stories_docs.py`** — Story 文档 CRUD：`GET /api/stories/{id}/docs`（列表）、`GET /api/stories/{id}/docs/{filename}`（读取）、`PUT /api/stories/{id}/docs/{filename}`（写入）。
+- **`projects.py`** — 项目 CRUD 及工作区管理。包含同步端点：`POST /api/projects/{id}/sync-context`（触发同步）、`GET /api/projects/{id}/sync-stream`（SSE 流）。
+- **`capabilities.py`** — Capability 健康检查和配置。
+- **`capability_utils.py`** — 跨 capability 端点的配置掩码/解掩码共享辅助函数。
+- **`settings.py`** — 全局 capability 配置。
+- **`users.py`** — 用户注册。
+- **`webhooks.py`** — GitHub webhook 处理器。
 
-### DB Session Pitfall
+### DB 会话陷阱
 
-`get_db()` is an async generator that auto-commits after `yield`. **Using `return` inside `async for db in get_db()` skips the commit.** When you need to persist data (e.g., error messages) in error paths, use a separate `get_db()` session block.
+`get_db()` 是一个异步生成器，在 `yield` 后自动提交。**在 `async for db in get_db()` 内使用 `return` 会跳过提交。** 当需要在错误路径中持久化数据（例如错误消息）时，使用单独的 `get_db()` 会话块。
 
-### Frontend (`web/`)
+### 前端 (`web/`)
 
-Separate React 18 SPA with TypeScript + Ant Design + Vite. Communicates with backend via REST API and SSE for real-time streaming.
+独立的 React 18 SPA，使用 TypeScript + Ant Design + Vite。通过 REST API 和 SSE 与后端通信以实现实时流式传输。
 
-**Key Pages**:
-- `StoryDetail.tsx` — Main story workflow UI (stage stepper, doc editors, AI console)
-- `StoryForm.tsx` — Story creation form
-- `ProjectDetail.tsx` — Project overview and story list
-- `ProjectList.tsx` — Project listing
-- `ProjectForm.tsx` — Project creation/edit form
-- `ProjectSettings.tsx` — Project-level settings
-- `GlobalSettings.tsx` — Global capability configuration
+**关键页面**:
+- `StoryDetail.tsx` — 主 story 工作流 UI（阶段步进器、文档编辑器、AI 控制台）
+- `StoryForm.tsx` — Story 创建表单
+- `ProjectDetail.tsx` — 项目概览和 story 列表
+- `ProjectList.tsx` — 项目列表
+- `ProjectForm.tsx` — 项目创建/编辑表单
+- `ProjectSettings.tsx` — 项目级设置
+- `GlobalSettings.tsx` — 全局 capability 配置
 
-**Key Components**:
-- `AIConsole.tsx` — Terminal-style SSE display for AI messages
-- `SyncConsole.tsx` — Workspace sync streaming console
-- `ChatPanel.tsx` — Document refinement chat
-- `PrdEditor.tsx` — Markdown editor
-- `StageStepper.tsx` — Visual workflow progress indicator
-- `ClarifyQA.tsx` — Clarification Q&A component
-- `AppLayout.tsx` — Main layout wrapper
+**关键组件**:
+- `AIConsole.tsx` — 终端风格的 SSE 显示，用于 AI 消息
+- `SyncConsole.tsx` — 工作区同步流式控制台
+- `ChatPanel.tsx` — 文档优化聊天
+- `PrdEditor.tsx` — Markdown 编辑器
+- `StageStepper.tsx` — 可视化工作流进度指示器
+- `ClarifyQA.tsx` — 澄清问答组件
+- `AppLayout.tsx` — 主布局包装器
 
-### Testing
+### 测试
 
-Tests use `pytest-asyncio` with `asyncio_mode = "auto"`. Fixtures in `tests/conftest.py` provide mock domain objects (`SimpleNamespace`-based) and FastAPI test clients (sync via `TestClient`, async via `httpx.AsyncClient`). No real DB required for unit tests.
+测试使用 `pytest-asyncio`，`asyncio_mode = "auto"`。`tests/conftest.py` 中的 fixtures 提供模拟域对象（基于 `SimpleNamespace`）和 FastAPI 测试客户端（通过 `TestClient` 同步，通过 `httpx.AsyncClient` 异步）。单元测试不需要真实 DB。
 
-## Configuration
+## 配置
 
-- `opd.yaml` — Main config (server, providers, workspace, logging). Supports `${ENV_VAR}` interpolation.
-- `.env` — Environment variables (GITHUB_TOKEN, ANTHROPIC_API_KEY). Loaded by `python-dotenv` at import time in `main.py`.
-- Ruff: `line-length = 100`, `target-version = "py311"`.
+- `opd.yaml` — 主配置（服务器、providers、工作区、日志）。支持 `${ENV_VAR}` 插值。
+- `.env` — 环境变量（GITHUB_TOKEN、ANTHROPIC_API_KEY）。在 `main.py` 导入时由 `python-dotenv` 加载。
+- Ruff: `line-length = 100`，`target-version = "py311"`。
 
-## Key Directories
+## 关键目录
 
 ```
 opd/
-├── api/                    # FastAPI routers and endpoints
-│   ├── stories.py          # Story lifecycle CRUD, SSE streaming
-│   ├── stories_tasks.py    # Background AI task functions with callbacks
-│   ├── stories_actions.py  # State transition actions
-│   ├── stories_docs.py     # Document CRUD endpoints
-│   ├── projects.py         # Project management + sync endpoints
-│   ├── capabilities.py     # Capability health checks
-│   ├── settings.py         # Global configuration
-│   ├── users.py            # User registration
-│   └── webhooks.py         # GitHub webhook handler
-├── engine/                 # Core orchestration engine
-│   ├── orchestrator.py     # Central coordinator (112 lines)
-│   ├── state_machine.py    # Status transition logic
-│   ├── context.py          # AI prompt builder
-│   ├── hashing.py          # Input change detection
-│   ├── stages/             # Stage implementations
-│   └── workspace/          # Git/file operations
-├── capabilities/           # Capability system
-│   ├── base.py             # Provider and Capability base classes
+├── api/                    # FastAPI 路由和端点
+│   ├── stories.py          # Story 生命周期 CRUD、SSE 流式传输
+│   ├── stories_tasks.py    # 带回调的后台 AI 任务函数
+│   ├── stories_actions.py  # 状态转换动作
+│   ├── stories_docs.py     # 文档 CRUD 端点
+│   ├── projects.py         # 项目管理 + 同步端点
+│   ├── capabilities.py     # Capability 健康检查
+│   ├── settings.py         # 全局配置
+│   ├── users.py            # 用户注册
+│   └── webhooks.py         # GitHub webhook 处理器
+├── engine/                 # 核心编排引擎
+│   ├── orchestrator.py     # 中央协调器（112 行）
+│   ├── state_machine.py    # 状态转换逻辑
+│   ├── context.py          # AI 提示词构建器
+│   ├── hashing.py          # 输入变更检测
+│   ├── stages/             # 阶段实现
+│   └── workspace/          # Git/文件操作
+├── capabilities/           # Capability 系统
+│   ├── base.py             # Provider 和 Capability 基类
 │   ├── registry.py         # CapabilityRegistry
 │   └── ...
-├── providers/              # Provider implementations
-│   ├── ai/                 # AI providers (claude_code, ducc)
-│   ├── scm/                # SCM providers (github)
-│   └── doc/                # Doc providers (local)
-├── db/                     # Database layer
-│   ├── models.py           # SQLAlchemy models
-│   └── session.py          # DB session management
-├── config.py               # Configuration loader
-├── middleware.py           # ASGI middleware
-└── main.py                 # Application entry point
+├── providers/              # Provider 实现
+│   ├── ai/                 # AI providers（claude_code、ducc）
+│   ├── scm/                # SCM providers（github）
+│   └── doc/                # Doc providers（local）
+├── db/                     # 数据库层
+│   ├── models.py           # SQLAlchemy 模型
+│   └── session.py          # DB 会话管理
+├── config.py               # 配置加载器
+├── middleware.py           # ASGI 中间件
+└── main.py                 # 应用入口点
 
 web/
 ├── src/
-│   ├── pages/              # Route pages
-│   │   ├── StoryDetail.tsx # Main story workflow UI
-│   │   ├── StoryForm.tsx   # Story creation
+│   ├── pages/              # 路由页面
+│   │   ├── StoryDetail.tsx # 主 story 工作流 UI
+│   │   ├── StoryForm.tsx   # Story 创建
 │   │   ├── ProjectDetail.tsx
 │   │   ├── ProjectList.tsx
 │   │   ├── ProjectForm.tsx
 │   │   ├── ProjectSettings.tsx
 │   │   └── GlobalSettings.tsx
-│   ├── components/         # Reusable components
-│   │   ├── AIConsole.tsx   # Terminal-style SSE display
-│   │   ├── SyncConsole.tsx # Workspace sync streaming
-│   │   ├── ChatPanel.tsx   # Document refinement chat
-│   │   ├── PrdEditor.tsx   # Markdown editor
+│   ├── components/         # 可复用组件
+│   │   ├── AIConsole.tsx   # 终端风格 SSE 显示
+│   │   ├── SyncConsole.tsx # 工作区同步流式传输
+│   │   ├── ChatPanel.tsx   # 文档优化聊天
+│   │   ├── PrdEditor.tsx   # Markdown 编辑器
 │   │   ├── StageStepper.tsx
-│   │   ├── ClarifyQA.tsx   # Clarification Q&A
-│   │   └── AppLayout.tsx   # Main layout wrapper
-│   └── main.tsx            # React entry point
-└── public/                 # Static assets
+│   │   ├── ClarifyQA.tsx   # 澄清问答
+│   │   └── AppLayout.tsx   # 主布局包装器
+│   └── main.tsx            # React 入口点
+└── public/                 # 静态资源
 
-tests/                      # pytest test suite
-docs/                       # Story documentation archives
+tests/                      # pytest 测试套件
+docs/                       # Story 文档归档
 ```
 
-## Data Model
+## 数据模型
 
-### Core Entities
+### 核心实体
 
-- **User** — Authentication and ownership
-- **Project** — Repository, workspace, rules, skills, capability configs
-- **Story** — Feature request with status, rounds, documents (PRD, designs, reports)
-- **Round** — Iteration cycle with branch, PRs, AI messages
-- **Task** — Decomposed work items from planning stage
-- **Clarification** — Q&A pairs during clarifying stage
-- **Rule** — Project-specific coding rules (coding, architecture, testing, git, forbidden)
-- **Skill** — Custom commands with triggers (auto_after_coding, auto_before_pr, manual)
+- **User** — 认证和所有权
+- **Project** — 仓库、工作区、规则、技能、capability 配置
+- **Story** — 功能请求，包含状态、轮次、文档（PRD、设计、报告）
+- **Round** — 迭代周期，包含分支、PR、AI 消息
+- **Task** — 从规划阶段分解的工作项
+- **Clarification** — 澄清阶段的问答对
+- **Rule** — 项目特定编码规则（编码、架构、测试、git、禁止）
+- **Skill** — 自定义命令，带触发器（auto_after_coding、auto_before_pr、manual）
 
-### Story Lifecycle States
+### Story 生命周期状态
 
 ```
 preparing → clarifying → planning → designing → coding → verifying → done
 ```
 
-Each state has a corresponding stage handler in `opd/engine/stages/`. Rollback supported to any prior stage.
+每个状态在 `opd/engine/stages/` 中都有相应的阶段处理器。支持回退到任意前置阶段。
 
-## Coding Standards
+## 编码规范
 
-### Immutability
+### 不可变性
 
-ALWAYS create new objects, NEVER mutate existing ones. Use immutable patterns for data updates.
+始终创建新对象，永不修改现有对象。使用不可变模式进行数据更新。
 
-### Error Handling
+### 错误处理
 
-- Handle errors explicitly at every level
-- Provide user-friendly messages in UI-facing code
-- Log detailed context on server side
-- Never silently swallow errors
+- 在每个级别显式处理错误
+- 在面向 UI 的代码中提供用户友好的消息
+- 在服务器端记录详细上下文
+- 永不静默吞噬错误
 
-### Async Patterns
+### 异步模式
 
-- Use `async`/`await` consistently
-- Background tasks tracked in `Orchestrator._running_tasks`
-- DB sessions via `async for db in get_db()` — avoid `return` inside loop (skips commit)
+- 一致使用 `async`/`await`
+- 在 `Orchestrator._running_tasks` 中跟踪后台任务
+- 通过 `async for db in get_db()` 获取 DB 会话 — 避免在循环内使用 `return`（会跳过提交）
 
-### File Organization
+### 文件组织
 
-- Many small files > few large files
-- 200-400 lines typical, 800 max
-- High cohesion, low coupling
-- Organize by feature/domain, not by type
+- 多个小文件 > 少数大文件
+- 典型 200-400 行，最多 800 行
+- 高内聚、低耦合
+- 按功能/领域组织，而非按类型
 
-### Testing
+### 测试
 
-- Use `pytest-asyncio` with `asyncio_mode = "auto"`
-- Mock domain objects with `SimpleNamespace`
-- No real DB required for unit tests
-- Fixtures in `tests/conftest.py`
+- 使用 `pytest-asyncio`，`asyncio_mode = "auto"`
+- 使用 `SimpleNamespace` 模拟域对象
+- 单元测试不需要真实 DB
+- Fixtures 在 `tests/conftest.py` 中
 
-## Common Pitfalls
+## 常见陷阱
 
-1. **DB Session Commit**: Using `return` inside `async for db in get_db()` skips auto-commit. Use separate session block for error paths.
-2. **Middleware Buffering**: Use pure ASGI middleware (not `BaseHTTPMiddleware`) to avoid buffering `StreamingResponse`.
-3. **Capability Lazy Loading**: Capabilities are lazy-loaded on first use. Register in `_BUILTIN_PROVIDERS` before use.
-4. **SSE Keepalive**: Stream endpoints need 15s heartbeat to prevent timeout.
-5. **Capability vs Provider Confusion**: `opd/capabilities/` contains the registry system, `opd/providers/` contains implementations. Don't confuse the two.
+1. **DB 会话提交**: 在 `async for db in get_db()` 内使用 `return` 会跳过自动提交。对于错误路径，使用单独的会话块。
+2. **中间件缓冲**: 使用纯 ASGI 中间件（而非 `BaseHTTPMiddleware`）以避免缓冲 `StreamingResponse`。
+3. **Capability 懒加载**: Capabilities 在首次使用时懒加载。使用前在 `_BUILTIN_PROVIDERS` 中注册。
+4. **SSE 保活**: 流式端点需要 15 秒心跳以防止超时。
+5. **Capability vs Provider 混淆**: `opd/capabilities/` 包含注册表系统，`opd/providers/` 包含实现。不要混淆两者。
 
-## Technical Debt & Improvement Areas
+## 技术债务与改进领域
 
-### Security (CRITICAL)
-- **Command Injection Risk**: `repo_url` and branch names not validated before git commands (`opd/api/projects.py`, `opd/engine/workspace/git.py`). Validate URL format (https only) and branch names (alphanumeric + hyphens).
-- **Missing Authentication**: No authentication/authorization on API endpoints. Anyone can access/modify any project. Add auth middleware and per-resource authorization.
-- **Rate Limiting**: No rate limiting on AI endpoints. Add rate limiting middleware to prevent abuse and cost explosion.
+### 安全（关键）
+- **命令注入风险**: `repo_url` 和分支名称在 git 命令前未验证（`opd/api/projects.py`、`opd/engine/workspace/git.py`）。验证 URL 格式（仅 https）和分支名称（字母数字 + 连字符）。
+- **缺少认证**: API 端点上无认证/授权。任何人都可以访问/修改任何项目。添加认证中间件和每资源授权。
+- **速率限制**: AI 端点上无速率限制。添加速率限制中间件以防止滥用和成本爆炸。
 
-### Architecture
-- **SSE Pub/Sub Scalability**: Current in-memory pub/sub in `Orchestrator` won't scale across multiple instances. Consider Redis pub/sub for multi-instance deployments.
-- **Background Task Tracking**: `_running_tasks` dict is in-memory only. For horizontal scaling, move to Redis or database-backed task queue.
-- **Circular Dependencies**: `opd/api/projects.py` line 96 imports from `opd.main`, creating circular dependency risk. Pass orchestrator as parameter or use dependency injection.
-- **Missing Task Manager**: No abstraction for background task lifecycle management. Create `TaskManager` class with proper lifecycle hooks.
-- **Tight Coupling**: Background tasks directly manipulate DB models. Introduce service layer to abstract DB operations.
-- **Blocking Subprocess Calls**: `opd/providers/scm/github.py` uses blocking `subprocess.run()` calls. Wrap in `asyncio.create_subprocess_exec()`.
+### 架构
+- **SSE Pub/Sub 可扩展性**: `Orchestrator` 中当前的内存 pub/sub 无法跨多个实例扩展。考虑使用 Redis pub/sub 进行多实例部署。
+- **后台任务跟踪**: `_running_tasks` 字典仅在内存中。对于水平扩展，移至 Redis 或基于数据库的任务队列。
+- **循环依赖**: `opd/api/projects.py` 第 96 行从 `opd.main` 导入，存在循环依赖风险。将 orchestrator 作为参数传递或使用依赖注入。
+- **缺少任务管理器**: 无后台任务生命周期管理的抽象。创建具有适当生命周期钩子的 `TaskManager` 类。
+- **紧耦合**: 后台任务直接操作 DB 模型。引入服务层以抽象 DB 操作。
+- **阻塞子进程调用**: `opd/providers/scm/github.py` 使用阻塞的 `subprocess.run()` 调用。包装在 `asyncio.create_subprocess_exec()` 中。
 
-### Code Quality
-- **Duplicated DB Session Pattern**: Pattern of creating session_factory and querying Story/Project repeated 7+ times in `opd/api/stories_tasks.py` and `opd/api/projects.py`. Extract into reusable helper function.
-- **Overly Long Functions**: `_start_ai_stage` (135 lines), `_launch_clone` (60 lines), `_launch_sync_context` (80 lines) violate SRP. Break into smaller functions.
-- **Duplicated Error Handling**: Git operation error handling repeated 3+ times. Wrap in helper with consistent error handling.
-- **Inconsistent Exception Handling**: Some places silently swallow exceptions, others log. Standardize: always log exceptions, never use bare `except Exception: pass`.
-- **Missing Docstrings**: Many helper functions lack docstrings (`opd/api/capability_utils.py`, complex algorithms in `opd/engine/workspace/git.py`).
+### 代码质量
+- **重复的 DB 会话模式**: 在 `opd/api/stories_tasks.py` 和 `opd/api/projects.py` 中重复 7+ 次创建 session_factory 和查询 Story/Project 的模式。提取为可复用的辅助函数。
+- **过长函数**: `_start_ai_stage`（135 行）、`_launch_clone`（60 行）、`_launch_sync_context`（80 行）违反 SRP。拆分为更小的函数。
+- **重复的错误处理**: Git 操作错误处理重复 3+ 次。包装在具有一致错误处理的辅助函数中。
+- **不一致的异常处理**: 有些地方静默吞噬异常，其他地方记录。标准化：始终记录异常，永不使用裸 `except Exception: pass`。
+- **缺少文档字符串**: 许多辅助函数缺少文档字符串（`opd/api/capability_utils.py`、`opd/engine/workspace/git.py` 中的复杂算法）。
 
-### API & Performance
-- **N+1 Query Risk**: Story listing iterates to count stories instead of using SQL COUNT (`opd/api/projects.py` lines 147-160).
-- **Inefficient Active Round Lookup**: Linear O(n) search through all rounds. Add `story.active_round_id` foreign key or use DB query with filter.
-- **Unbounded File Reading**: `claude_md.read_text()` reads entire file into memory (`opd/engine/context.py` line 75). Add size limit or streaming read.
-- **Missing Indexes**: Verify indexes on: `stories.project_id`, `stories.status`, `rounds.story_id`, `rounds.status`, `ai_messages.round_id`, `clarifications.story_id`.
-- **API Documentation**: Missing OpenAPI documentation for some endpoints (stories_docs, project sync).
-- **Error Response Consistency**: Some endpoints return `{"error": "..."}`, others raise `HTTPException`. Standardize on HTTPException.
+### API 与性能
+- **N+1 查询风险**: Story 列表迭代计数 stories 而非使用 SQL COUNT（`opd/api/projects.py` 第 147-160 行）。
+- **低效的活动轮次查找**: 线性 O(n) 搜索所有轮次。添加 `story.active_round_id` 外键或使用带过滤器的 DB 查询。
+- **无界文件读取**: `claude_md.read_text()` 将整个文件读入内存（`opd/engine/context.py` 第 75 行）。添加大小限制或流式读取。
+- **缺少索引**: 验证索引：`stories.project_id`、`stories.status`、`rounds.story_id`、`rounds.status`、`ai_messages.round_id`、`clarifications.story_id`。
+- **API 文档**: 某些端点缺少 OpenAPI 文档（stories_docs、project sync）。
+- **错误响应一致性**: 某些端点返回 `{"error": "..."}`，其他端点引发 `HTTPException`。标准化为 HTTPException。
 
-### Frontend
-- **State Management**: Prop drilling in some components (StoryDetail, ProjectDetail). Consider React Context or state management library.
-- **Component Reusability**: Some components have duplicated logic. Extract shared hooks and utilities.
-- **Type Safety**: Some `any` types in TypeScript. Improve type coverage.
+### 前端
+- **状态管理**: 某些组件中的 prop drilling（StoryDetail、ProjectDetail）。考虑 React Context 或状态管理库。
+- **组件可复用性**: 某些组件有重复逻辑。提取共享钩子和工具。
+- **类型安全**: TypeScript 中的一些 `any` 类型。改进类型覆盖率。
 
-### Testing
-- **E2E Test Coverage**: Missing E2E tests for critical workflows (story creation → coding → merge).
-- **Integration Tests**: Limited integration tests for API endpoints with real DB. No integration tests for SSE streaming.
-- **Frontend Tests**: No frontend component tests. Add React Testing Library tests.
-- **Error Recovery Tests**: No tests for error recovery in background tasks (DB errors, git errors, AI errors).
-- **Concurrency Tests**: No tests for concurrent story execution. Race conditions possible.
-- **Edge Case Tests**: No tests for workspace conflicts (dirty workspace during branch creation).
+### 测试
+- **E2E 测试覆盖率**: 缺少关键工作流的 E2E 测试（story 创建 → 编码 → 合并）。
+- **集成测试**: 使用真实 DB 的 API 端点集成测试有限。无 SSE 流式传输的集成测试。
+- **前端测试**: 无前端组件测试。添加 React Testing Library 测试。
+- **错误恢复测试**: 无后台任务错误恢复测试（DB 错误、git 错误、AI 错误）。
+- **并发测试**: 无并发 story 执行测试。可能存在竞态条件。
+- **边缘情况测试**: 无工作区冲突测试（分支创建期间脏工作区）。
 
 ### DevOps
-- **Docker Support**: No Dockerfile or docker-compose.yml for containerized deployment.
-- **CI/CD Pipeline**: No GitHub Actions or CI/CD configuration.
-- **Environment Management**: `.env` file not documented. Add `.env.example`.
+- **Docker 支持**: 无 Dockerfile 或 docker-compose.yml 用于容器化部署。
+- **CI/CD 管道**: 无 GitHub Actions 或 CI/CD 配置。
+- **环境管理**: `.env` 文件未记录。添加 `.env.example`。
 
-### Documentation
-- **API Endpoint Documentation**: Missing detailed API documentation. Consider adding OpenAPI/Swagger UI.
-- **Provider Development Guide**: No guide for adding new providers.
-- **Deployment Guide**: Missing production deployment instructions.
-- **Function Docstrings**: Many helper functions lack docstrings, especially in `opd/api/capability_utils.py` and complex algorithms in `opd/engine/workspace/git.py`.
+### 文档
+- **API 端点文档**: 缺少详细的 API 文档。考虑添加 OpenAPI/Swagger UI。
+- **Provider 开发指南**: 无添加新 providers 的指南。
+- **部署指南**: 缺少生产部署说明。
+- **函数文档字符串**: 许多辅助函数缺少文档字符串，特别是 `opd/api/capability_utils.py` 和 `opd/engine/workspace/git.py` 中的复杂算法。
 
-## Priority Recommendations
+## 优先级建议
 
-### Immediate (Security - CRITICAL)
-1. Add input validation for `repo_url` and branch names to prevent command injection
-2. Add authentication/authorization to all API endpoints
-3. Fix blocking subprocess calls in `GitHubProvider`
-4. Add rate limiting middleware for AI endpoints
+### 立即（安全 - 关键）
+1. 为 `repo_url` 和分支名称添加输入验证以防止命令注入
+2. 为所有 API 端点添加认证/授权
+3. 修复 `GitHubProvider` 中的阻塞子进程调用
+4. 为 AI 端点添加速率限制中间件
 
-### High Priority (Architecture & Quality)
-5. Extract background task DB session pattern into reusable helper
-6. Break up overly long functions (`_start_ai_stage`, `_launch_clone`, `_launch_sync_context`)
-7. Create `TaskManager` abstraction for background task lifecycle
-8. Fix circular dependency in `opd/api/projects.py`
-9. Standardize error handling (no silent exceptions)
-10. Add docstrings to all public functions
+### 高优先级（架构与质量）
+5. 将后台任务 DB 会话模式提取为可复用辅助函数
+6. 拆分过长函数（`_start_ai_stage`、`_launch_clone`、`_launch_sync_context`）
+7. 为后台任务生命周期创建 `TaskManager` 抽象
+8. 修复 `opd/api/projects.py` 中的循环依赖
+9. 标准化错误处理（无静默异常）
+10. 为所有公共函数添加文档字符串
 
-### Medium Priority (Testing & Performance)
-11. Add integration tests for SSE streaming
-12. Add concurrency and error recovery tests
-13. Optimize N+1 queries and active round lookup
-14. Add size limits for file reading operations
-15. Verify database indexes exist
+### 中优先级（测试与性能）
+11. 为 SSE 流式传输添加集成测试
+12. 添加并发和错误恢复测试
+13. 优化 N+1 查询和活动轮次查找
+14. 为文件读取操作添加大小限制
+15. 验证数据库索引存在
 
-### Low Priority (Cleanup)
-16. Consolidate duplicated document resolution logic
-17. Standardize error response formats
-18. Add E2E tests for full workflows
-19. Improve frontend state management
-20. Add Docker and CI/CD configuration
+### 低优先级（清理）
+16. 合并重复的文档解析逻辑
+17. 标准化错误响应格式
+18. 为完整工作流添加 E2E 测试
+19. 改进前端状态管理
+20. 添加 Docker 和 CI/CD 配置
 
-## Development Workflow
+## 开发工作流
 
-1. **Feature Development**: Create Story → AI generates PRD → Review/confirm → AI plans → AI designs → AI codes → Manual verification → Merge
-2. **Iteration**: Use rollback actions (iterate from verifying→coding, restart from verifying→designing) to refine at any stage
-3. **Real-time Monitoring**: SSE streaming shows live AI progress in terminal-style console
-4. **Multi-round Support**: Each iteration creates new Round with separate branch and PR
-5. **Workspace Sync**: Use project sync endpoints to update context from repository changes
+1. **功能开发**: 创建 Story → AI 生成 PRD → 审查/确认 → AI 规划 → AI 设计 → AI 编码 → 人工验证 → 合并
+2. **迭代**: 使用回退动作（从 verifying→coding 迭代，从 verifying→designing 重启）在任何阶段优化
+3. **实时监控**: SSE 流式传输在终端风格控制台中显示实时 AI 进度
+4. **多轮支持**: 每次迭代创建新的 Round，带有单独的分支和 PR
+5. **工作区同步**: 使用项目同步端点从仓库变更更新上下文
 
-## Known Issues & Workarounds
+## 已知问题与解决方法
 
-### DB Session Commit Pitfall
-Using `return` inside `async for db in get_db()` skips auto-commit. When persisting data in error paths, use a separate `get_db()` session block.
+### DB 会话提交陷阱
+在 `async for db in get_db()` 内使用 `return` 会跳过自动提交。在错误路径中持久化数据时，使用单独的 `get_db()` 会话块。
 
-### Middleware Buffering
-Use pure ASGI middleware (not `BaseHTTPMiddleware`) to avoid buffering `StreamingResponse`. Streaming paths (`/stream`, `/logs`) must be passed through without wrapping.
+### 中间件缓冲
+使用纯 ASGI 中间件（而非 `BaseHTTPMiddleware`）以避免缓冲 `StreamingResponse`。流式路径（`/stream`、`/logs`）必须无需包装即可通过。
 
-### Capability Lazy Loading
-Capabilities are lazy-loaded on first use. Register in `_BUILTIN_PROVIDERS` before use to avoid import errors.
+### Capability 懒加载
+Capabilities 在首次使用时懒加载。使用前在 `_BUILTIN_PROVIDERS` 中注册以避免导入错误。
 
-### SSE Keepalive
-Stream endpoints need 15s heartbeat to prevent timeout. Already implemented in `/stream` endpoints.
+### SSE 保活
+流式端点需要 15 秒心跳以防止超时。已在 `/stream` 端点中实现。
 
-### Capability vs Provider Confusion
-`opd/capabilities/` contains the registry system, `opd/providers/` contains implementations. Don't confuse the two when adding new capabilities.
+### Capability vs Provider 混淆
+`opd/capabilities/` 包含注册表系统，`opd/providers/` 包含实现。添加新 capabilities 时不要混淆两者。

@@ -23,6 +23,8 @@ from opd.db.models import (
 )
 from opd.engine.orchestrator import Orchestrator
 from opd.engine.workspace import delete_doc, discard_branch, pull_main
+
+from opd.api.projects import launch_incremental_claude_md_update
 from opd.models.schemas import IterateRequest, RollbackRequest
 
 logger = logging.getLogger(__name__)
@@ -282,6 +284,9 @@ async def merge_story_pr(
         await pull_main(story.project)
     except Exception:
         logger.warning("pull_main failed after merge for story %s", story_id, exc_info=True)
+
+    # Incrementally update CLAUDE.md based on merged changes
+    launch_incremental_claude_md_update(story.project_id, orch)
 
     await db.flush()
     return {"id": story.id, "pr_number": open_pr.pr_number, "status": "merged"}

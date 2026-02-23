@@ -7,6 +7,7 @@ from opd.engine.workspace.git import (
     create_coding_branch,
     discard_branch,
     generate_branch_name,
+    get_latest_merge_diff,
     pull_main,
 )
 from opd.engine.workspace.paths import (
@@ -33,6 +34,7 @@ __all__ = [
     "delete_doc",
     "discard_branch",
     "generate_branch_name",
+    "get_latest_merge_diff",
     "list_docs",
     "pull_main",
     "read_doc",

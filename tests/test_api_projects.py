@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy import select
@@ -105,40 +105,27 @@ class TestCreateProject:
 
 
 class TestUpdateProject:
-    @patch("opd.api.projects._launch_clone")
-    async def test_update_same_url(self, mock_clone, project_db):
+    async def test_update_fields(self, project_db):
         from opd.api.projects import update_project
-        from opd.models.schemas import CreateProjectRequest
+        from opd.models.schemas import UpdateProjectRequest
 
         async with project_db() as db:
             async with db.begin():
-                req = CreateProjectRequest(name="updated", repo_url="https://github.com/t/r")
+                req = UpdateProjectRequest(
+                    name="updated", description="new desc", tech_stack="Go",
+                )
                 result = await update_project(1, req, db)
                 assert result["name"] == "updated"
-                mock_clone.assert_not_called()
-
-    @patch("opd.api.projects._launch_clone")
-    async def test_update_new_url_reclones(self, mock_clone, project_db):
-        from opd.api.projects import update_project
-        from opd.models.schemas import CreateProjectRequest
-
-        async with project_db() as db:
-            async with db.begin():
-                req = CreateProjectRequest(name="updated", repo_url="https://github.com/new/r")
-                await update_project(1, req, db)
-                mock_clone.assert_called_once()
 
     async def test_update_not_found(self, project_db):
         from fastapi import HTTPException
         from opd.api.projects import update_project
-        from opd.models.schemas import CreateProjectRequest
+        from opd.models.schemas import UpdateProjectRequest
 
         async with project_db() as db:
             async with db.begin():
                 with pytest.raises(HTTPException):
-                    await update_project(999, CreateProjectRequest(
-                        name="x", repo_url="https://github.com/t/r",
-                    ), db)
+                    await update_project(999, UpdateProjectRequest(name="x"), db)
 
 
 # ── init_workspace ──
@@ -200,3 +187,63 @@ class TestWorkspaceStatus:
             async with db.begin():
                 with pytest.raises(HTTPException):
                     await workspace_status(999, db)
+
+
+# ── _ai_incremental_update_claude_md ──
+
+
+class TestIncrementalUpdateClaudeMd:
+    async def test_returns_updated_content(self):
+        from opd.api.projects import _ai_incremental_update_claude_md
+
+        async def fake_plan(system, user):
+            yield {"type": "assistant", "content": "# Updated CLAUDE.md\nNew content"}
+
+        ai_cap = MagicMock()
+        ai_cap.provider.plan = fake_plan
+
+        result = await _ai_incremental_update_claude_md(
+            ai_cap, "diff summary", "# Old CLAUDE.md",
+        )
+        assert "Updated" in result
+
+    async def test_returns_existing_on_empty_response(self):
+        from opd.api.projects import _ai_incremental_update_claude_md
+
+        async def fake_plan(system, user):
+            return
+            yield  # noqa: make it an async generator
+
+        ai_cap = MagicMock()
+        ai_cap.provider.plan = fake_plan
+
+        result = await _ai_incremental_update_claude_md(
+            ai_cap, "diff", "# Existing",
+        )
+        assert result == "# Existing"
+
+
+# ── UpdateProjectRequest schema ──
+
+
+class TestUpdateProjectRequest:
+    def test_valid(self):
+        from opd.models.schemas import UpdateProjectRequest
+
+        req = UpdateProjectRequest(name="proj", description="desc", tech_stack="Go")
+        assert req.name == "proj"
+
+    def test_defaults(self):
+        from opd.models.schemas import UpdateProjectRequest
+
+        req = UpdateProjectRequest(name="proj")
+        assert req.description == ""
+        assert req.tech_stack == ""
+        assert req.architecture == ""
+
+    def test_no_repo_url_field(self):
+        from opd.models.schemas import UpdateProjectRequest
+
+        # UpdateProjectRequest should not have repo_url as a model field
+        assert "repo_url" not in UpdateProjectRequest.model_fields
+        assert "workspace_dir" not in UpdateProjectRequest.model_fields

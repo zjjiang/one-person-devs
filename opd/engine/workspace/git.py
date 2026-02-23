@@ -249,6 +249,29 @@ async def pull_main(project: Any) -> bool:
     return True
 
 
+async def get_latest_merge_diff(project: Any, max_chars: int = 8000) -> str | None:
+    """Get diff summary of the latest commit on main (typically a merge).
+
+    Returns formatted stat + truncated diff, or None if not a git workspace.
+    """
+    work_dir = _is_git_workspace(project)
+    if not work_dir:
+        return None
+
+    rc, stat, _ = await _git(work_dir, "diff", "--stat", "HEAD~1..HEAD")
+    if rc != 0:
+        return None
+
+    rc, diff, _ = await _git(work_dir, "diff", "HEAD~1..HEAD")
+    if rc != 0:
+        return stat
+
+    if len(diff) > max_chars:
+        diff = diff[:max_chars] + "\n... (truncated)"
+
+    return f"### Changed files\n{stat}\n\n### Diff\n{diff}"
+
+
 async def commit_and_push_file(
     project: Any, filepath: str, message: str,
     *, content: str | None = None, target_branch: str = "main",

@@ -14,6 +14,7 @@ from opd.engine.workspace.git import (
     clone_workspace,
     create_coding_branch,
     discard_branch,
+    get_latest_merge_diff,
 )
 
 
@@ -240,3 +241,56 @@ class TestDiscardBranch:
         mock_git.return_value = (0, "", "")
         await discard_branch(SimpleNamespace(), "opd/story-1-r1")
         assert mock_git.call_count >= 3  # checkout main, branch -D, push --delete
+
+
+# ── get_latest_merge_diff ──
+
+
+class TestGetLatestMergeDiff:
+    @patch("opd.engine.workspace.git._is_git_workspace", return_value=None)
+    async def test_not_git_returns_none(self, _):
+        result = await get_latest_merge_diff(SimpleNamespace())
+        assert result is None
+
+    @patch("opd.engine.workspace.git._is_git_workspace")
+    @patch("opd.engine.workspace.git._git")
+    async def test_returns_stat_and_diff(self, mock_git, mock_is_git, tmp_path):
+        mock_is_git.return_value = tmp_path
+        mock_git.side_effect = [
+            (0, "file.py | 3 +++", ""),   # --stat
+            (0, "+added line", ""),         # diff
+        ]
+        result = await get_latest_merge_diff(SimpleNamespace())
+        assert "Changed files" in result
+        assert "+added line" in result
+
+    @patch("opd.engine.workspace.git._is_git_workspace")
+    @patch("opd.engine.workspace.git._git")
+    async def test_stat_fails_returns_none(self, mock_git, mock_is_git, tmp_path):
+        mock_is_git.return_value = tmp_path
+        mock_git.return_value = (128, "", "fatal")
+        result = await get_latest_merge_diff(SimpleNamespace())
+        assert result is None
+
+    @patch("opd.engine.workspace.git._is_git_workspace")
+    @patch("opd.engine.workspace.git._git")
+    async def test_diff_fails_returns_stat_only(self, mock_git, mock_is_git, tmp_path):
+        mock_is_git.return_value = tmp_path
+        mock_git.side_effect = [
+            (0, "file.py | 3 +++", ""),
+            (128, "", "fatal"),
+        ]
+        result = await get_latest_merge_diff(SimpleNamespace())
+        assert result == "file.py | 3 +++"
+
+    @patch("opd.engine.workspace.git._is_git_workspace")
+    @patch("opd.engine.workspace.git._git")
+    async def test_truncates_large_diff(self, mock_git, mock_is_git, tmp_path):
+        mock_is_git.return_value = tmp_path
+        big_diff = "x" * 10000
+        mock_git.side_effect = [
+            (0, "stat", ""),
+            (0, big_diff, ""),
+        ]
+        result = await get_latest_merge_diff(SimpleNamespace(), max_chars=100)
+        assert "truncated" in result

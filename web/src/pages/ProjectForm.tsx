@@ -62,17 +62,19 @@ export default function ProjectForm() {
   const timerRef = useRef<ReturnType<typeof setInterval>>();
 
   useEffect(() => {
-    getCapabilityCatalog().then((data) => {
-      setCatalog(data);
-      const init: Record<string, CapEdit> = {};
-      data.forEach((c) => {
-        init[c.capability] = {
-          enabled: true,
-          provider: c.providers[0]?.name || "",
-        };
+    if (!isEdit) {
+      getCapabilityCatalog().then((data) => {
+        setCatalog(data);
+        const init: Record<string, CapEdit> = {};
+        data.forEach((c) => {
+          init[c.capability] = {
+            enabled: true,
+            provider: c.providers[0]?.name || "",
+          };
+        });
+        setCapEdits(init);
       });
-      setCapEdits(init);
-    });
+    }
     if (isEdit) {
       getProject(Number(id)).then((p) => form.setFieldsValue(p));
     }
@@ -131,20 +133,24 @@ export default function ProjectForm() {
   const onFinish = async (values: Record<string, string>) => {
     setLoading(true);
     try {
-      const data = {
-        name: values.name,
-        repo_url: values.repo_url,
-        description: values.description,
-        tech_stack: values.tech_stack,
-        architecture: values.architecture,
-        workspace_dir: values.workspace_dir,
-      };
       if (isEdit) {
-        await updateProject(Number(id), data);
+        await updateProject(Number(id), {
+          name: values.name,
+          description: values.description,
+          tech_stack: values.tech_stack,
+          architecture: values.architecture,
+        });
         message.success("项目已更新");
         navigate(`/projects/${id}`);
       } else {
-        const res = await createProject(data);
+        const res = await createProject({
+          name: values.name,
+          repo_url: values.repo_url,
+          description: values.description,
+          tech_stack: values.tech_stack,
+          architecture: values.architecture,
+          workspace_dir: values.workspace_dir,
+        });
         const items = Object.entries(capEdits).map(([cap, edit]) => ({
           capability: cap,
           enabled: edit.enabled,
@@ -213,7 +219,7 @@ export default function ProjectForm() {
               label="工作空间目录"
               tooltip="AI 编码时代码存放的目录，留空则默认 ./workspace"
             >
-              <Input placeholder="./workspace" />
+              <Input placeholder="./workspace" disabled={isEdit} />
             </Form.Item>
           </Col>
         </Row>
@@ -239,19 +245,23 @@ export default function ProjectForm() {
             )
           }
         >
-          <Space.Compact style={{ width: "100%" }}>
-            <Input
-              placeholder="https://github.com/org/repo"
-              suffix={repoSuffix}
-              onChange={() => setRepoVerify({ status: "idle" })}
-            />
-            <Button
-              onClick={handleVerifyRepo}
-              loading={repoVerify.status === "loading"}
-            >
-              验证权限
-            </Button>
-          </Space.Compact>
+          {isEdit ? (
+            <Input disabled />
+          ) : (
+            <Space.Compact style={{ width: "100%" }}>
+              <Input
+                placeholder="https://github.com/org/repo"
+                suffix={repoSuffix}
+                onChange={() => setRepoVerify({ status: "idle" })}
+              />
+              <Button
+                onClick={handleVerifyRepo}
+                loading={repoVerify.status === "loading"}
+              >
+                验证权限
+              </Button>
+            </Space.Compact>
+          )}
         </Form.Item>
 
         <Row gutter={16}>
@@ -332,6 +342,24 @@ export default function ProjectForm() {
               })}
             </Row>
           </>
+        )}
+
+        {isEdit && (
+          <Alert
+            type="info"
+            showIcon
+            message="能力配置请前往项目设置页面管理"
+            action={
+              <Button
+                size="small"
+                type="link"
+                onClick={() => navigate(`/projects/${id}/settings`)}
+              >
+                前往设置
+              </Button>
+            }
+            style={{ marginTop: 8 }}
+          />
         )}
 
         <Form.Item style={{ marginTop: 24 }}>

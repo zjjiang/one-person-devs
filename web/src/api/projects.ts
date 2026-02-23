@@ -23,11 +23,9 @@ export const updateProject = (
   id: number,
   data: {
     name: string;
-    repo_url: string;
     description?: string;
     tech_stack?: string;
     architecture?: string;
-    workspace_dir?: string;
   },
 ) =>
   request<{ id: number }>(`/api/projects/${id}`, {

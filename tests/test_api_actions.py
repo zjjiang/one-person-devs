@@ -12,7 +12,9 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from opd.db.models import (
     Base,
     Clarification,
+    PRStatus,
     Project,
+    PullRequest,
     Round,
     RoundStatus,
     Story,
@@ -244,3 +246,85 @@ class TestRestartStory:
             async with db.begin():
                 result = await restart_story(1, None, db, orch)
                 assert result["action"] == "restart"  # should not crash
+
+
+# ── merge_story_pr ──
+
+
+@pytest.fixture
+async def merge_db():
+    """In-memory DB with story in verifying status and an open PR."""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    sf = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with sf() as db:
+        async with db.begin():
+            p = Project(name="test", repo_url="https://github.com/t/r",
+                        workspace_status=WorkspaceStatus.ready)
+            db.add(p)
+            await db.flush()
+            s = Story(project_id=p.id, title="Test", raw_input="x",
+                      status=StoryStatus.verifying, current_round=1)
+            db.add(s)
+            await db.flush()
+            r = Round(story_id=s.id, round_number=1, type="initial",
+                      status=RoundStatus.active, branch_name="opd/story-1-r1")
+            db.add(r)
+            await db.flush()
+            pr = PullRequest(round_id=r.id, repo_url="https://github.com/t/r",
+                             pr_number=42, pr_url="https://github.com/t/r/pull/42",
+                             status=PRStatus.open)
+            db.add(pr)
+
+    yield sf
+    await engine.dispose()
+
+
+class TestMergeStoryPR:
+    @patch("opd.api.stories_actions.launch_incremental_claude_md_update")
+    @patch("opd.api.stories_actions.pull_main", new_callable=AsyncMock)
+    @patch("opd.api.stories_actions._build_project_registry")
+    async def test_merge_ok(self, mock_registry, mock_pull, mock_launch, merge_db):
+        from opd.api.stories_actions import merge_story_pr
+
+        scm_mock = AsyncMock()
+        mock_registry.return_value = MagicMock(
+            get=MagicMock(return_value=MagicMock(provider=scm_mock))
+        )
+        orch = MagicMock()
+
+        async with merge_db() as db:
+            async with db.begin():
+                result = await merge_story_pr(1, db, orch)
+                assert result["status"] == "merged"
+                assert result["pr_number"] == 42
+                scm_mock.merge_pull_request.assert_called_once()
+                mock_pull.assert_called_once()
+                mock_launch.assert_called_once()
+
+    async def test_merge_not_found(self, merge_db):
+        from opd.api.stories_actions import merge_story_pr
+
+        orch = MagicMock()
+        async with merge_db() as db:
+            async with db.begin():
+                with pytest.raises(HTTPException) as exc_info:
+                    await merge_story_pr(999, db, orch)
+                assert exc_info.value.status_code == 404
+
+    async def test_merge_wrong_status(self, merge_db):
+        from opd.api.stories_actions import merge_story_pr
+
+        orch = MagicMock()
+        async with merge_db() as db:
+            async with db.begin():
+                result = await db.execute(select(Story).where(Story.id == 1))
+                story = result.scalar_one()
+                story.status = StoryStatus.coding
+        async with merge_db() as db:
+            async with db.begin():
+                with pytest.raises(HTTPException) as exc_info:
+                    await merge_story_pr(1, db, orch)
+                assert exc_info.value.status_code == 400

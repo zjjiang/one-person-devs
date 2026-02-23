@@ -27,6 +27,13 @@ class CreateProjectRequest(BaseModel):
         return v
 
 
+class UpdateProjectRequest(BaseModel):
+    name: str
+    description: str = ""
+    tech_stack: str = ""
+    architecture: str = ""
+
+
 class CreateStoryRequest(BaseModel):
     title: str
     raw_input: str

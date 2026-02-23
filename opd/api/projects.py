@@ -16,8 +16,14 @@ from opd.api.deps import get_db, get_orch
 from opd.db.models import Project, WorkspaceStatus
 from opd.db.session import get_session_factory
 from opd.engine.orchestrator import Orchestrator
-from opd.engine.workspace import clone_workspace, commit_and_push_file, resolve_work_dir, scan_workspace
-from opd.models.schemas import CreateProjectRequest
+from opd.engine.workspace import (
+    clone_workspace,
+    commit_and_push_file,
+    get_latest_merge_diff,
+    resolve_work_dir,
+    scan_workspace,
+)
+from opd.models.schemas import CreateProjectRequest, UpdateProjectRequest
 
 logger = logging.getLogger(__name__)
 
@@ -202,25 +208,16 @@ async def get_project(project_id: int, db: AsyncSession = Depends(get_db)):
 
 @router.put("/{project_id}")
 async def update_project(
-    project_id: int, req: CreateProjectRequest, db: AsyncSession = Depends(get_db)
+    project_id: int, req: UpdateProjectRequest, db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(select(Project).where(Project.id == project_id))
     project = result.scalar_one_or_none()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    old_repo_url = project.repo_url
     project.name = req.name
-    project.repo_url = req.repo_url
     project.description = req.description or ""
     project.tech_stack = req.tech_stack or ""
     project.architecture = req.architecture or ""
-    project.workspace_dir = req.workspace_dir or ""
-    # Re-clone if repo_url changed
-    if req.repo_url != old_repo_url:
-        project.workspace_status = WorkspaceStatus.pending
-        project.workspace_error = ""
-        await db.flush()
-        _launch_clone(project.id, req.repo_url)
     return {"id": project.id, "name": project.name}
 
 
@@ -475,3 +472,85 @@ def _fallback_claude_md(project: Project, source_context: str) -> str:
         sections.append(f"## 架构\n{project.architecture}\n")
     sections.append(source_context)
     return "\n".join(sections)
+
+
+def launch_incremental_claude_md_update(project_id: int, orch: Orchestrator) -> None:
+    """Launch background task to incrementally update CLAUDE.md after merge.
+
+    Non-blocking: fires and forgets. Failures are logged but do not propagate.
+    """
+    task_key = f"project_claude_md_{project_id}"
+    if orch.is_task_running(task_key):
+        return
+
+    async def _run() -> None:
+        await asyncio.sleep(0.5)  # Let merge DB commit settle
+        session_factory = get_session_factory()
+        try:
+            async with session_factory() as db:
+                async with db.begin():
+                    result = await db.execute(
+                        select(Project).where(Project.id == project_id)
+                    )
+                    project = result.scalar_one_or_none()
+                    if not project:
+                        return
+
+                    diff_summary = await get_latest_merge_diff(project)
+                    if not diff_summary:
+                        logger.info("No merge diff found for project %s, skipping", project_id)
+                        return
+
+                    work_dir = resolve_work_dir(project)
+                    claude_md_path = work_dir / "CLAUDE.md"
+                    if not claude_md_path.is_file():
+                        logger.info("No CLAUDE.md for project %s, skipping incremental", project_id)
+                        return
+                    existing = claude_md_path.read_text(encoding="utf-8")
+
+                    from opd.api.stories_tasks import _build_project_registry
+                    registry = await _build_project_registry(db, orch, project_id)
+                    ai_cap = registry.get("ai")
+                    if not ai_cap:
+                        return
+
+                    updated = await _ai_incremental_update_claude_md(
+                        ai_cap, diff_summary, existing,
+                    )
+                    if updated and updated != existing:
+                        await commit_and_push_file(
+                            project, "CLAUDE.md",
+                            "chore: incremental update CLAUDE.md after merge",
+                            content=updated,
+                        )
+                        logger.info("Incremental CLAUDE.md update for project %s", project_id)
+        except Exception:
+            logger.exception("Incremental CLAUDE.md update failed for project %s", project_id)
+        finally:
+            orch.unregister_task(task_key)
+
+    task = asyncio.create_task(_run())
+    orch.register_task(task_key, task)
+
+
+async def _ai_incremental_update_claude_md(
+    ai_cap, diff_summary: str, existing: str,
+) -> str:
+    """Call AI to incrementally update CLAUDE.md based on merge diff."""
+    system_prompt = (
+        "你是一个资深工程师。根据最近一次合并的代码变更，增量更新项目的 CLAUDE.md 文件。\n\n"
+        "规则：\n"
+        "- 只修改受变更影响的部分\n"
+        "- 保留现有内容中仍然准确的部分\n"
+        "- 如果变更引入了新模块/API/配置，添加相应说明\n"
+        "- 如果变更删除或重命名了内容，更新对应描述\n"
+        "- 直接输出完整的 CLAUDE.md 内容，不要用 ```markdown 包裹"
+    )
+    user_prompt = f"## 现有 CLAUDE.md\n{existing}\n\n## 最近合并的变更\n{diff_summary}"
+
+    collected: list[str] = []
+    async for msg in ai_cap.provider.plan(system_prompt, user_prompt):
+        if msg.get("type") == "assistant" and msg.get("content"):
+            collected.append(msg["content"])
+
+    return "\n".join(collected).strip() if collected else existing
