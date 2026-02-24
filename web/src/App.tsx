@@ -6,12 +6,14 @@ import ProjectDetail from "./pages/ProjectDetail";
 import GlobalSettings from "./pages/GlobalSettings";
 import StoryForm from "./pages/StoryForm";
 import StoryDetail from "./pages/StoryDetail";
+import LogViewer from "./pages/LogViewer";
 
 export default function App() {
   return (
     <AppLayout>
       <Routes>
         <Route path="/" element={<ProjectList />} />
+        <Route path="/logs" element={<LogViewer />} />
         <Route path="/settings" element={<GlobalSettings />} />
         <Route path="/projects/new" element={<ProjectForm />} />
         <Route path="/projects/:id" element={<ProjectDetail />} />
