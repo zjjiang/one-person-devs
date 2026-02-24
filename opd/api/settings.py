@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -149,6 +151,38 @@ async def test_global_capability(
         return {"healthy": status.healthy, "message": status.message}
     finally:
         await prov.cleanup()
+
+
+@router.post("/capabilities/verify-all")
+async def verify_all_capabilities(
+    orch: Orchestrator = Depends(get_orch),
+    db: AsyncSession = Depends(get_db),
+):
+    """Run health_check on all saved capability configs concurrently."""
+    result = await db.execute(select(GlobalCapabilityConfig))
+    rows = result.scalars().all()
+
+    async def _check(row: GlobalCapabilityConfig) -> tuple[int, dict]:
+        prov = orch.capabilities.create_temp_provider(row.capability, row.provider, row.config or {})
+        if not prov:
+            return row.id, {"healthy": False, "message": f"Provider [{row.provider}] not found"}
+        await prov.initialize()
+        try:
+            status = await prov.health_check()
+            return row.id, {"healthy": status.healthy, "message": status.message}
+        except Exception as exc:
+            return row.id, {"healthy": False, "message": str(exc)}
+        finally:
+            await prov.cleanup()
+
+    checks = await asyncio.gather(*[_check(r) for r in rows], return_exceptions=True)
+    results: dict[int, dict] = {}
+    for item in checks:
+        if isinstance(item, Exception):
+            continue
+        rid, status = item
+        results[rid] = status
+    return results
 
 
 @router.delete("/capabilities/{config_id}")

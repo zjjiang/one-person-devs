@@ -13,12 +13,14 @@ import {
   Tag,
   Modal,
   Popconfirm,
+  Tooltip,
 } from "antd";
 import {
   ApiOutlined,
   PlusOutlined,
   DeleteOutlined,
   CheckCircleOutlined,
+  SyncOutlined,
 } from "@ant-design/icons";
 import {
   getGlobalCapabilities,
@@ -27,6 +29,7 @@ import {
   saveGlobalCapability,
   testGlobalCapability,
   deleteGlobalCapability,
+  verifyAllCapabilities,
   type GlobalCapabilityItem,
   type AvailableCapability,
   type ConfigSchemaField,
@@ -49,6 +52,10 @@ export default function GlobalSettings() {
   const [addCap, setAddCap] = useState<string | undefined>();
   const [addProvider, setAddProvider] = useState<string | undefined>();
   const [addLabel, setAddLabel] = useState<string>("");
+  const [healthMap, setHealthMap] = useState<
+    Record<number, { healthy: boolean; message: string }>
+  >({});
+  const [verifying, setVerifying] = useState(false);
 
   const loadCaps = () => {
     setLoading(true);
@@ -154,6 +161,23 @@ export default function GlobalSettings() {
       loadCaps();
     } catch {
       message.error("删除失败");
+    }
+  };
+
+  const handleVerifyAll = async () => {
+    setVerifying(true);
+    setHealthMap({});
+    try {
+      const results = await verifyAllCapabilities();
+      setHealthMap(results);
+      const total = Object.keys(results).length;
+      const healthy = Object.values(results).filter((r) => r.healthy).length;
+      if (healthy === total) message.success(`全部 ${total} 项验证通过`);
+      else message.warning(`${healthy}/${total} 项验证通过`);
+    } catch {
+      message.error("批量验证失败");
+    } finally {
+      setVerifying(false);
     }
   };
 
@@ -276,6 +300,22 @@ export default function GlobalSettings() {
       ),
     },
     {
+      title: "健康",
+      key: "health",
+      width: 100,
+      render: (_: unknown, r: GlobalCapabilityItem) => {
+        const h = healthMap[r.id];
+        if (!h) return <Typography.Text type="secondary">—</Typography.Text>;
+        return (
+          <Tooltip title={h.message}>
+            <Tag color={h.healthy ? "success" : "error"}>
+              {h.healthy ? "正常" : "异常"}
+            </Tag>
+          </Tooltip>
+        );
+      },
+    },
+    {
       title: "操作",
       key: "actions",
       width: 80,
@@ -315,13 +355,23 @@ export default function GlobalSettings() {
             配置全局可用的能力和服务提供方，所有项目共享这些配置。
           </Typography.Paragraph>
         </div>
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          onClick={() => setAddOpen(true)}
-        >
-          新增能力
-        </Button>
+        <Space>
+          <Button
+            icon={<SyncOutlined spin={verifying} />}
+            loading={verifying}
+            onClick={handleVerifyAll}
+            disabled={caps.length === 0}
+          >
+            验证全部
+          </Button>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => setAddOpen(true)}
+          >
+            新增能力
+          </Button>
+        </Space>
       </div>
 
       <Table<GlobalCapabilityItem>

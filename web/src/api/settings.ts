@@ -67,3 +67,9 @@ export const testGlobalCapability = (
     `/api/settings/capabilities/${id}/test`,
     { method: "POST", body: JSON.stringify(data) },
   );
+
+export const verifyAllCapabilities = () =>
+  request<Record<number, { healthy: boolean; message: string }>>(
+    "/api/settings/capabilities/verify-all",
+    { method: "POST" },
+  );
