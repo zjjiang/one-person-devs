@@ -130,13 +130,25 @@ class TestBatchSave:
 
 
 class TestGetCatalog:
-    async def test_catalog(self):
+    async def test_catalog(self, cap_db):
         from opd.api.capabilities import get_catalog
 
         orch = _make_orch()
-        result = await get_catalog(orch)
-        assert isinstance(result, list)
-        assert any(c["capability"] == "ai" for c in result)
+        # Add a saved global config so catalog has data
+        async with cap_db() as db:
+            async with db.begin():
+                db.add(GlobalCapabilityConfig(
+                    capability="ai", provider="claude_code",
+                    enabled=True, config={},
+                ))
+        async with cap_db() as db:
+            async with db.begin():
+                result = await get_catalog(orch, db)
+                assert isinstance(result, list)
+                assert any(c["capability"] == "ai" for c in result)
+                ai_items = [c for c in result if c["capability"] == "ai"]
+                assert all("provider" in c for c in ai_items)
+                assert all("id" in c for c in ai_items)
 
 
 # ── settings: get_global_capabilities ──
@@ -151,50 +163,78 @@ class TestGetGlobalCapabilities:
         async with cap_db() as db:
             async with db.begin():
                 db.add(GlobalCapabilityConfig(
-                    capability="ai", enabled=True, provider="claude_code",
-                    config={"api_key": "sk-global"},
+                    capability="ai", provider="claude_code",
+                    enabled=True, config={"api_key": "sk-global"},
                 ))
         async with cap_db() as db:
             async with db.begin():
                 result = await get_global_capabilities(orch, db)
                 assert isinstance(result, list)
+                assert len(result) >= 1
                 ai_cap = next(c for c in result if c["capability"] == "ai")
-                assert ai_cap["saved"]["enabled"] is True
+                assert ai_cap["enabled"] is True
+                assert "id" in ai_cap
+
+
+# ── settings: create_global_capability ──
+
+
+class TestCreateGlobalCapability:
+    async def test_create_new(self, cap_db):
+        from opd.api.settings import create_global_capability
+        from opd.models.schemas import CreateGlobalCapabilityRequest
+
+        orch = _make_orch()
+        async with cap_db() as db:
+            req = CreateGlobalCapabilityRequest(
+                capability="ai", provider="claude_code",
+                enabled=True, config={"api_key": "sk-new"},
+            )
+            result = await create_global_capability(req, orch, db)
+            assert result["ok"] is True
+            assert "id" in result
+
+    async def test_create_multiple_same_provider(self, cap_db):
+        from opd.api.settings import create_global_capability
+        from opd.models.schemas import CreateGlobalCapabilityRequest
+
+        orch = _make_orch()
+        async with cap_db() as db:
+            req1 = CreateGlobalCapabilityRequest(
+                capability="ai", provider="ducc", enabled=True,
+            )
+            req2 = CreateGlobalCapabilityRequest(
+                capability="ai", provider="ducc", enabled=True,
+                label="Ducc Team B",
+            )
+            r1 = await create_global_capability(req1, orch, db)
+            r2 = await create_global_capability(req2, orch, db)
+            assert r1["id"] != r2["id"]
 
 
 # ── settings: save_global_capability ──
 
 
 class TestSaveGlobalCapability:
-    async def test_save_new(self, cap_db):
-        from opd.api.settings import save_global_capability
-        from opd.models.schemas import SaveCapabilityConfigRequest
-
-        orch = _make_orch()
-        async with cap_db() as db:
-            req = SaveCapabilityConfigRequest(
-                enabled=True, provider_override="claude_code",
-                config_override={"api_key": "sk-new"},
-            )
-            result = await save_global_capability("ai", req, orch, db)
-            assert result["ok"] is True
-
     async def test_save_update(self, cap_db):
         from opd.api.settings import save_global_capability
-        from opd.models.schemas import SaveCapabilityConfigRequest
+        from opd.models.schemas import SaveGlobalCapabilityRequest
 
         orch = _make_orch()
         # Create initial
         async with cap_db() as db:
             async with db.begin():
-                db.add(GlobalCapabilityConfig(
-                    capability="scm", enabled=True, provider="github",
-                    config={"token": "old"},
-                ))
+                row = GlobalCapabilityConfig(
+                    capability="scm", provider="github",
+                    enabled=True, config={"token": "old"},
+                )
+                db.add(row)
+                await db.flush()
+                row_id = row.id
         async with cap_db() as db:
-            req = SaveCapabilityConfigRequest(
-                enabled=False, provider_override="github",
+            req = SaveGlobalCapabilityRequest(
+                enabled=False,
                 config_override={"token": "new"},
             )
-            result = await save_global_capability("scm", req, orch, db)
+            result = await save_global_capability(row_id, req, orch, db)
             assert result["ok"] is True

@@ -27,6 +27,12 @@ export interface StorySummary {
   status: string;
 }
 
+export interface CapabilityConfig {
+  capability: string;
+  provider: string;
+  enabled: boolean;
+}
+
 export interface Project {
   id: number;
   name: string;
@@ -39,6 +45,7 @@ export interface Project {
   workspace_error: string;
   rules: Rule[];
   skills: Skill[];
+  capability_configs: CapabilityConfig[];
   stories: StorySummary[];
 }
 
@@ -136,14 +143,4 @@ export const STAGE_LABELS: Record<string, string> = {
   coding: "AI 编码",
   verifying: "人工验证",
   done: "完成",
-};
-
-export const CAPABILITY_LABELS: Record<string, string> = {
-  ai: "AI 编码",
-  scm: "代码管理",
-  ci: "持续集成",
-  doc: "文档管理",
-  sandbox: "沙箱环境",
-  notification: "通知推送",
-  requirement: "需求管理",
 };

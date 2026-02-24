@@ -6,9 +6,11 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from opd.api.capability_utils import CAPABILITY_LABELS, find_schema, mask_config, unmask_passwords
+from opd.api.capability_utils import (
+    HIDDEN_CAPABILITIES, find_schema, mask_config, unmask_passwords,
+)
 from opd.api.deps import get_db, get_orch
-from opd.db.models import ProjectCapabilityConfig
+from opd.db.models import GlobalCapabilityConfig, ProjectCapabilityConfig
 from opd.engine.orchestrator import Orchestrator
 from opd.models.schemas import SaveCapabilityConfigRequest, TestCapabilityRequest
 
@@ -141,17 +143,30 @@ async def test_capability(
 
 
 @catalog_router.get("/catalog")
-async def get_catalog(orch: Orchestrator = Depends(get_orch)):
-    """Return global capability catalog (for project creation form)."""
+async def get_catalog(
+    orch: Orchestrator = Depends(get_orch),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return saved global capabilities for project creation form."""
     available = orch.capabilities.list_available()
-    return [
-        {
-            "capability": cap["capability"],
-            "label": CAPABILITY_LABELS.get(cap["capability"], cap["capability"]),
-            "providers": [{"name": p["name"]} for p in cap["providers"]],
-        }
-        for cap in available
-    ]
+
+    result = await db.execute(select(GlobalCapabilityConfig))
+    rows = result.scalars().all()
+
+    items = []
+    for row in rows:
+        if row.capability in HIDDEN_CAPABILITIES:
+            continue
+        schema = find_schema(available, row.capability, row.provider)
+        items.append({
+            "id": row.id,
+            "capability": row.capability,
+            "label": row.label or row.capability,
+            "provider": row.provider,
+            "config_schema": schema,
+            "enabled": row.enabled,
+        })
+    return items
 
 
 # --- Batch save capabilities ---

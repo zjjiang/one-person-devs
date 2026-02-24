@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from opd.api.deps import get_db, get_orch
-from opd.db.models import Project, WorkspaceStatus
+from opd.db.models import Project, ProjectCapabilityConfig, WorkspaceStatus
 from opd.db.session import get_session_factory
 from opd.engine.orchestrator import Orchestrator
 from opd.engine.workspace import (
@@ -119,11 +119,11 @@ async def _resolve_scm_token(session_factory) -> str | None:
                 select(GlobalCapabilityConfig)
                 .where(GlobalCapabilityConfig.capability == "scm")
             )
-            gc = result.scalar_one_or_none()
-            if gc and gc.config:
-                token = gc.config.get("token")
-                if token:
-                    return token
+            for gc in result.scalars().all():
+                if gc.config:
+                    token = gc.config.get("token")
+                    if token:
+                        return token
     except Exception:
         pass
 
@@ -199,6 +199,10 @@ async def get_project(project_id: int, db: AsyncSession = Depends(get_db)):
             {"id": s.id, "name": s.name, "trigger": s.trigger.value}
             for s in project.skills
         ],
+        "capability_configs": [
+            {"capability": c.capability, "provider": c.provider_override or "", "enabled": c.enabled}
+            for c in project.capability_configs
+        ],
         "stories": [
             {"id": s.id, "title": s.title, "status": s.status.value}
             for s in project.stories
@@ -218,7 +222,46 @@ async def update_project(
     project.description = req.description or ""
     project.tech_stack = req.tech_stack or ""
     project.architecture = req.architecture or ""
-    return {"id": project.id, "name": project.name}
+
+    workspace_reclone = False
+
+    # Handle repo_url change → trigger re-clone
+    if req.repo_url is not None and req.repo_url != project.repo_url:
+        project.repo_url = req.repo_url
+        project.workspace_status = WorkspaceStatus.pending
+        project.workspace_error = ""
+        await db.flush()
+        _launch_clone(project.id, req.repo_url)
+        workspace_reclone = True
+
+    # Handle workspace_dir change
+    if req.workspace_dir is not None:
+        project.workspace_dir = req.workspace_dir
+
+    # Handle capabilities toggle (enabled only, no provider/config override)
+    if req.capabilities is not None:
+        for toggle in req.capabilities:
+            cap_result = await db.execute(
+                select(ProjectCapabilityConfig).where(
+                    ProjectCapabilityConfig.project_id == project_id,
+                    ProjectCapabilityConfig.capability == toggle.capability,
+                )
+            )
+            existing = cap_result.scalar_one_or_none()
+            if existing:
+                existing.enabled = toggle.enabled
+                existing.provider_override = toggle.provider or None
+                existing.config_override = None
+            else:
+                db.add(ProjectCapabilityConfig(
+                    project_id=project_id,
+                    capability=toggle.capability,
+                    enabled=toggle.enabled,
+                    provider_override=toggle.provider or None,
+                    config_override=None,
+                ))
+
+    return {"id": project.id, "name": project.name, "workspace_reclone": workspace_reclone}
 
 
 @router.post("/{project_id}/init-workspace")
@@ -267,14 +310,17 @@ async def verify_repo(
         config = {**scm_cap.provider.config, "repo_url": repo_url}
         provider_name = orch.capabilities.resolve_provider_name("scm", scm_cap.provider)
     else:
-        # 2) Fallback: check GlobalCapabilityConfig table
+        # 2) Fallback: check GlobalCapabilityConfig table for first enabled SCM
         from opd.db.models import GlobalCapabilityConfig
         result = await db.execute(
             select(GlobalCapabilityConfig)
-            .where(GlobalCapabilityConfig.capability == "scm")
+            .where(
+                GlobalCapabilityConfig.capability == "scm",
+                GlobalCapabilityConfig.enabled.is_(True),
+            )
         )
-        gc = result.scalar_one_or_none()
-        if not gc or not gc.provider:
+        gc = result.scalars().first()
+        if not gc:
             return {"healthy": False, "message": "SCM 能力未配置，请先在全局设置中配置"}
         config = {**(gc.config or {}), "repo_url": repo_url}
         provider_name = gc.provider

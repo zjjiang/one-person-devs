@@ -15,7 +15,6 @@ import {
 } from "antd";
 import {
   PlusOutlined,
-  SettingOutlined,
   EditOutlined,
   ReloadOutlined,
   SyncOutlined,
@@ -131,12 +130,6 @@ export default function ProjectDetail() {
             onClick={() => navigate(`/projects/${id}/edit`)}
           >
             编辑
-          </Button>
-          <Button
-            icon={<SettingOutlined />}
-            onClick={() => navigate("/settings")}
-          >
-            全局设置
           </Button>
           <Button
             type="primary"

@@ -2,9 +2,12 @@ import { request } from "./client";
 import type { CapabilityItem } from "../types";
 
 export interface CatalogItem {
+  id: number;
   capability: string;
   label: string;
-  providers: { name: string }[];
+  provider: string;
+  config_schema: { name: string; label: string; type: string }[];
+  enabled: boolean;
 }
 
 export const getCapabilityCatalog = () =>

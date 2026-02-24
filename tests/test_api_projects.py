@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from opd.db.models import Base, Project, WorkspaceStatus
+from opd.db.models import Base, Project, ProjectCapabilityConfig, WorkspaceStatus
 
 
 @pytest.fixture
@@ -116,6 +116,7 @@ class TestUpdateProject:
                 )
                 result = await update_project(1, req, db)
                 assert result["name"] == "updated"
+                assert result["workspace_reclone"] is False
 
     async def test_update_not_found(self, project_db):
         from fastapi import HTTPException
@@ -126,6 +127,120 @@ class TestUpdateProject:
             async with db.begin():
                 with pytest.raises(HTTPException):
                     await update_project(999, UpdateProjectRequest(name="x"), db)
+
+    @patch("opd.api.projects._launch_clone")
+    async def test_repo_url_change_triggers_reclone(self, mock_clone, project_db):
+        from opd.api.projects import update_project
+        from opd.models.schemas import UpdateProjectRequest
+
+        async with project_db() as db:
+            async with db.begin():
+                req = UpdateProjectRequest(
+                    name="test-proj",
+                    repo_url="https://github.com/new/repo",
+                )
+                result = await update_project(1, req, db)
+                assert result["workspace_reclone"] is True
+                mock_clone.assert_called_once_with(1, "https://github.com/new/repo")
+
+                # Verify project was updated
+                proj_result = await db.execute(
+                    select(Project).where(Project.id == 1)
+                )
+                proj = proj_result.scalar_one()
+                assert proj.repo_url == "https://github.com/new/repo"
+                assert proj.workspace_status == WorkspaceStatus.pending
+
+    @patch("opd.api.projects._launch_clone")
+    async def test_same_repo_url_no_reclone(self, mock_clone, project_db):
+        from opd.api.projects import update_project
+        from opd.models.schemas import UpdateProjectRequest
+
+        async with project_db() as db:
+            async with db.begin():
+                req = UpdateProjectRequest(
+                    name="test-proj",
+                    repo_url="https://github.com/t/r",  # same as seeded
+                )
+                result = await update_project(1, req, db)
+                assert result["workspace_reclone"] is False
+                mock_clone.assert_not_called()
+
+    async def test_capabilities_upsert(self, project_db):
+        from opd.api.projects import update_project
+        from opd.models.schemas import CapabilityToggle, UpdateProjectRequest
+
+        async with project_db() as db:
+            async with db.begin():
+                req = UpdateProjectRequest(
+                    name="test-proj",
+                    capabilities=[
+                        CapabilityToggle(capability="ai", provider="claude_code", enabled=True),
+                        CapabilityToggle(capability="scm", provider="github", enabled=False),
+                    ],
+                )
+                await update_project(1, req, db)
+
+                # Verify capabilities were created
+                caps_result = await db.execute(
+                    select(ProjectCapabilityConfig)
+                    .where(ProjectCapabilityConfig.project_id == 1)
+                )
+                caps = caps_result.scalars().all()
+                assert len(caps) == 2
+                by_cap = {c.capability: c for c in caps}
+                assert by_cap["ai"].enabled is True
+                assert by_cap["scm"].enabled is False
+                assert by_cap["ai"].provider_override == "claude_code"
+
+    async def test_capabilities_update_existing(self, project_db):
+        from opd.api.projects import update_project
+        from opd.models.schemas import CapabilityToggle, UpdateProjectRequest
+
+        async with project_db() as db:
+            # First create a capability
+            async with db.begin():
+                db.add(ProjectCapabilityConfig(
+                    project_id=1, capability="ai", enabled=True,
+                    provider_override="old_provider",
+                ))
+
+            # Now update it
+            async with db.begin():
+                req = UpdateProjectRequest(
+                    name="test-proj",
+                    capabilities=[
+                        CapabilityToggle(capability="ai", provider="ducc", enabled=False),
+                    ],
+                )
+                await update_project(1, req, db)
+
+                caps_result = await db.execute(
+                    select(ProjectCapabilityConfig)
+                    .where(ProjectCapabilityConfig.project_id == 1)
+                )
+                cap = caps_result.scalar_one()
+                assert cap.enabled is False
+                # provider_override should be updated
+                assert cap.provider_override == "ducc"
+
+    async def test_workspace_dir_update(self, project_db):
+        from opd.api.projects import update_project
+        from opd.models.schemas import UpdateProjectRequest
+
+        async with project_db() as db:
+            async with db.begin():
+                req = UpdateProjectRequest(
+                    name="test-proj",
+                    workspace_dir="/new/path",
+                )
+                await update_project(1, req, db)
+
+                proj_result = await db.execute(
+                    select(Project).where(Project.id == 1)
+                )
+                proj = proj_result.scalar_one()
+                assert proj.workspace_dir == "/new/path"
 
 
 # ── init_workspace ──
@@ -241,9 +356,11 @@ class TestUpdateProjectRequest:
         assert req.tech_stack == ""
         assert req.architecture == ""
 
-    def test_no_repo_url_field(self):
+    def test_optional_fields(self):
         from opd.models.schemas import UpdateProjectRequest
 
-        # UpdateProjectRequest should not have repo_url as a model field
-        assert "repo_url" not in UpdateProjectRequest.model_fields
-        assert "workspace_dir" not in UpdateProjectRequest.model_fields
+        # repo_url, workspace_dir, capabilities are optional (None by default)
+        req = UpdateProjectRequest(name="proj")
+        assert req.repo_url is None
+        assert req.workspace_dir is None
+        assert req.capabilities is None

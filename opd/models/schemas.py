@@ -27,11 +27,20 @@ class CreateProjectRequest(BaseModel):
         return v
 
 
+class CapabilityToggle(BaseModel):
+    capability: str
+    provider: str = ""
+    enabled: bool
+
+
 class UpdateProjectRequest(BaseModel):
     name: str
     description: str = ""
     tech_stack: str = ""
     architecture: str = ""
+    repo_url: str | None = None
+    workspace_dir: str | None = None
+    capabilities: list[CapabilityToggle] | None = None
 
 
 class CreateStoryRequest(BaseModel):
@@ -63,8 +72,26 @@ class SaveCapabilityConfigRequest(BaseModel):
     config_override: dict | None = None
 
 
+class SaveGlobalCapabilityRequest(BaseModel):
+    enabled: bool = True
+    config_override: dict | None = None
+    label: str | None = None
+
+
+class CreateGlobalCapabilityRequest(BaseModel):
+    capability: str
+    provider: str
+    enabled: bool = True
+    label: str | None = None
+    config: dict | None = None
+
+
 class TestCapabilityRequest(BaseModel):
     provider: str
+    config: dict
+
+
+class TestGlobalCapabilityRequest(BaseModel):
     config: dict
 
 

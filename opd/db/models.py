@@ -173,9 +173,10 @@ class GlobalCapabilityConfig(Base):
     __tablename__ = "global_capability_configs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    capability: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    capability: Mapped[str] = mapped_column(String(50), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    provider: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    provider: Mapped[str] = mapped_column(String(100), nullable=False)
+    label: Mapped[str | None] = mapped_column(String(100), nullable=True)
     config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 

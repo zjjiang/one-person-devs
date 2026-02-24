@@ -19,10 +19,37 @@ _BUILTIN_PROVIDERS: dict[str, dict[str, str]] = {
     },
     "scm": {
         "github": "opd.providers.scm.github:GitHubProvider",
+        "icode": "opd.providers.scm.icode:ICodeProvider",
     },
     "doc": {
         "local": "opd.providers.doc.local:LocalDocProvider",
     },
+    "ci": {
+        "jenkins": "opd.providers.ci.jenkins:JenkinsProvider",
+        "github_actions": "opd.providers.ci.github_actions:GitHubActionsProvider",
+    },
+    "sandbox": {
+        "docker": "opd.providers.sandbox.docker_sandbox:DockerSandboxProvider",
+    },
+    "notification": {
+        "feishu": "opd.providers.notification.feishu:FeishuProvider",
+        "ruflow": "opd.providers.notification.ruflow:RuflowProvider",
+    },
+    "requirement": {
+        "jira": "opd.providers.requirement.jira:JiraProvider",
+        "linear": "opd.providers.requirement.linear:LinearProvider",
+    },
+}
+
+# Canonical labels for all capability types (single source of truth)
+_CAPABILITY_LABELS: dict[str, str] = {
+    "ai": "AI 编码",
+    "scm": "代码管理",
+    "doc": "文档管理",
+    "ci": "持续集成",
+    "sandbox": "沙箱环境",
+    "notification": "通知推送",
+    "requirement": "需求管理",
 }
 
 
@@ -184,6 +211,7 @@ class CapabilityRegistry:
             active_cap = self._capabilities.get(category)
             result.append({
                 "capability": category,
+                "label": _CAPABILITY_LABELS.get(category, category),
                 "providers": provider_list,
                 "active_provider": (
                     type(active_cap.provider).__name__ if active_cap else None

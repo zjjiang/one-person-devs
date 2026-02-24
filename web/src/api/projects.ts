@@ -26,9 +26,12 @@ export const updateProject = (
     description?: string;
     tech_stack?: string;
     architecture?: string;
+    repo_url?: string;
+    workspace_dir?: string;
+    capabilities?: { capability: string; provider: string; enabled: boolean }[];
   },
 ) =>
-  request<{ id: number }>(`/api/projects/${id}`, {
+  request<{ id: number; workspace_reclone: boolean }>(`/api/projects/${id}`, {
     method: "PUT",
     body: JSON.stringify(data),
   });

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  Card,
+  Table,
   Form,
   Input,
   Button,
@@ -8,18 +8,21 @@ import {
   Typography,
   Alert,
   Spin,
-  Checkbox,
-  Select,
   Divider,
   Space,
   Row,
   Col,
   Tag,
+  Modal,
 } from "antd";
 import {
   CheckCircleOutlined,
   CloseCircleOutlined,
   LoadingOutlined,
+  LockOutlined,
+  UnlockOutlined,
+  PlusOutlined,
+  DeleteOutlined,
 } from "@ant-design/icons";
 import { useNavigate, useParams } from "react-router-dom";
 import {
@@ -34,11 +37,7 @@ import {
   batchSaveCapabilities,
   type CatalogItem,
 } from "../api/capabilities";
-
-interface CapEdit {
-  enabled: boolean;
-  provider: string;
-}
+import type { Project } from "../types";
 
 interface RepoVerify {
   status: "idle" | "loading" | "ok" | "error";
@@ -52,7 +51,9 @@ export default function ProjectForm() {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
-  const [capEdits, setCapEdits] = useState<Record<string, CapEdit>>({});
+  /** Selected keys as "capability/provider" strings */
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
+  const [addCapOpen, setAddCapOpen] = useState(false);
   const [repoVerify, setRepoVerify] = useState<RepoVerify>({ status: "idle" });
   const [cloneStatus, setCloneStatus] = useState<{
     polling: boolean;
@@ -61,27 +62,53 @@ export default function ProjectForm() {
   }>({ polling: false });
   const timerRef = useRef<ReturnType<typeof setInterval>>();
 
+  // Lock state for edit mode
+  const [repoLocked, setRepoLocked] = useState(true);
+  const [workspaceLocked, setWorkspaceLocked] = useState(true);
+  const [originalProject, setOriginalProject] = useState<Project | null>(null);
+
+  const catKey = (c: CatalogItem) => `${c.capability}/${c.provider}`;
+
   useEffect(() => {
-    if (!isEdit) {
-      getCapabilityCatalog().then((data) => {
-        setCatalog(data);
-        const init: Record<string, CapEdit> = {};
-        data.forEach((c) => {
-          init[c.capability] = {
-            enabled: true,
-            provider: c.providers[0]?.name || "",
-          };
-        });
-        setCapEdits(init);
-      });
-    }
+    getCapabilityCatalog().then((data) => {
+      setCatalog(data);
+      if (!isEdit) {
+        // Default: select all enabled items from global config
+        setSelectedKeys(data.filter((c) => c.enabled).map(catKey));
+      }
+    });
+
     if (isEdit) {
-      getProject(Number(id)).then((p) => form.setFieldsValue(p));
+      getProject(Number(id)).then((p) => {
+        form.setFieldsValue(p);
+        setOriginalProject(p);
+        // Load enabled capabilities as "cap/provider" keys
+        const enabled = (p.capability_configs || [])
+          .filter((c) => c.enabled)
+          .map((c) => `${c.capability}/${c.provider}`);
+        setSelectedKeys(enabled);
+      });
     }
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [id, isEdit, form]);
+
+  const handleUnlock = (field: "repo" | "workspace") => {
+    Modal.confirm({
+      title: field === "repo" ? "解锁仓库地址" : "解锁工作空间目录",
+      content:
+        field === "repo"
+          ? "修改仓库地址将触发重新克隆，当前工作区数据会被覆盖。确定要解锁？"
+          : "修改工作空间目录可能导致路径不一致，请确认操作。",
+      okText: "解锁",
+      cancelText: "取消",
+      onOk: () => {
+        if (field === "repo") setRepoLocked(false);
+        else setWorkspaceLocked(false);
+      },
+    });
+  };
 
   const handleVerifyRepo = async () => {
     const url = form.getFieldValue("repo_url")?.trim();
@@ -134,14 +161,41 @@ export default function ProjectForm() {
     setLoading(true);
     try {
       if (isEdit) {
-        await updateProject(Number(id), {
+        const data: Record<string, unknown> = {
           name: values.name,
           description: values.description,
           tech_stack: values.tech_stack,
           architecture: values.architecture,
-        });
-        message.success("项目已更新");
-        navigate(`/projects/${id}`);
+        };
+        // Only send repo_url if unlocked and changed
+        if (!repoLocked && values.repo_url !== originalProject?.repo_url) {
+          data.repo_url = values.repo_url;
+        }
+        // Only send workspace_dir if unlocked
+        if (
+          !workspaceLocked &&
+          values.workspace_dir !== originalProject?.workspace_dir
+        ) {
+          data.workspace_dir = values.workspace_dir;
+        }
+        // Send capability toggles: selected → enabled, rest → disabled
+        data.capabilities = catalog.map((c) => ({
+          capability: c.capability,
+          provider: c.provider,
+          enabled: selectedKeys.includes(catKey(c)),
+        }));
+        const res = await updateProject(
+          Number(id),
+          data as Parameters<typeof updateProject>[1],
+        );
+        if (res.workspace_reclone) {
+          message.success("仓库地址已更新，正在重新克隆...");
+          setLoading(false);
+          pollWorkspace(Number(id));
+        } else {
+          message.success("项目已更新");
+          navigate(`/projects/${id}`);
+        }
       } else {
         const res = await createProject({
           name: values.name,
@@ -151,11 +205,14 @@ export default function ProjectForm() {
           architecture: values.architecture,
           workspace_dir: values.workspace_dir,
         });
-        const items = Object.entries(capEdits).map(([cap, edit]) => ({
-          capability: cap,
-          enabled: edit.enabled,
-          provider_override: edit.provider || null,
-        }));
+        const items = selectedKeys.map((key) => {
+          const catItem = catalog.find((c) => catKey(c) === key);
+          return {
+            capability: catItem?.capability || key.split("/")[0],
+            enabled: true,
+            provider_override: catItem?.provider || key.split("/")[1] || null,
+          };
+        });
         await batchSaveCapabilities(res.id, items);
         message.success("项目已创建，正在初始化工作区...");
         setLoading(false);
@@ -176,6 +233,52 @@ export default function ProjectForm() {
       return <CloseCircleOutlined style={{ color: "#ff4d4f" }} />;
     return null;
   })();
+
+  // Capabilities selected for this project
+  const selectedCatalog = catalog.filter((c) =>
+    selectedKeys.includes(catKey(c)),
+  );
+  const availableToAdd = catalog.filter(
+    (c) => !selectedKeys.includes(catKey(c)),
+  );
+
+  const capColumns = [
+    {
+      title: "能力名称",
+      dataIndex: "label",
+      key: "label",
+      render: (_: string, r: CatalogItem) => (
+        <Space>
+          <span>{r.label}</span>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            {r.capability}
+          </Typography.Text>
+        </Space>
+      ),
+    },
+    {
+      title: "Provider",
+      key: "provider",
+      width: 140,
+      render: (_: unknown, r: CatalogItem) => <Tag>{r.provider}</Tag>,
+    },
+    {
+      title: "操作",
+      key: "actions",
+      width: 70,
+      render: (_: unknown, r: CatalogItem) => (
+        <Button
+          type="text"
+          size="small"
+          danger
+          icon={<DeleteOutlined />}
+          onClick={() =>
+            setSelectedKeys((prev) => prev.filter((k) => k !== catKey(r)))
+          }
+        />
+      ),
+    },
+  ];
 
   return (
     <div style={{ maxWidth: 720, margin: "0 auto" }}>
@@ -216,17 +319,54 @@ export default function ProjectForm() {
           <Col span={12}>
             <Form.Item
               name="workspace_dir"
-              label="工作空间目录"
+              label={
+                <Space size={4}>
+                  工作空间目录
+                  {isEdit && (
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={
+                        workspaceLocked ? <LockOutlined /> : <UnlockOutlined />
+                      }
+                      onClick={() =>
+                        workspaceLocked
+                          ? handleUnlock("workspace")
+                          : setWorkspaceLocked(true)
+                      }
+                      style={{ color: workspaceLocked ? "#999" : "#1677ff" }}
+                    />
+                  )}
+                </Space>
+              }
               tooltip="AI 编码时代码存放的目录，留空则默认 ./workspace"
             >
-              <Input placeholder="./workspace" disabled={isEdit} />
+              <Input
+                placeholder="./workspace"
+                disabled={isEdit && workspaceLocked}
+              />
             </Form.Item>
           </Col>
         </Row>
 
         <Form.Item
           name="repo_url"
-          label="仓库地址"
+          label={
+            <Space size={4}>
+              仓库地址
+              {isEdit && (
+                <Button
+                  type="text"
+                  size="small"
+                  icon={repoLocked ? <LockOutlined /> : <UnlockOutlined />}
+                  onClick={() =>
+                    repoLocked ? handleUnlock("repo") : setRepoLocked(true)
+                  }
+                  style={{ color: repoLocked ? "#999" : "#1677ff" }}
+                />
+              )}
+            </Space>
+          }
           rules={[
             { required: true, message: "请输入仓库地址" },
             {
@@ -245,7 +385,7 @@ export default function ProjectForm() {
             )
           }
         >
-          {isEdit ? (
+          {isEdit && repoLocked ? (
             <Input disabled />
           ) : (
             <Space.Compact style={{ width: "100%" }}>
@@ -281,85 +421,68 @@ export default function ProjectForm() {
           <Input.TextArea rows={3} placeholder="系统架构、模块划分等（可选）" />
         </Form.Item>
 
-        {!isEdit && catalog.length > 0 && (
+        {catalog.length > 0 && (
           <>
             <Divider orientation="left" plain style={{ margin: "8px 0 16px" }}>
               启用能力
             </Divider>
-            <Row gutter={[12, 8]}>
-              {catalog.map((cap) => {
-                const edit = capEdits[cap.capability];
-                if (!edit) return null;
-                return (
-                  <Col key={cap.capability} xs={12} sm={8}>
-                    <Card
-                      size="small"
-                      hoverable
-                      style={{
-                        borderColor: edit.enabled ? "#1677ff" : undefined,
-                        cursor: "pointer",
+            <Table<CatalogItem>
+              rowKey={(r) => catKey(r)}
+              columns={capColumns}
+              dataSource={selectedCatalog}
+              pagination={false}
+              size="small"
+              footer={() => (
+                <Button
+                  type="dashed"
+                  icon={<PlusOutlined />}
+                  onClick={() => setAddCapOpen(true)}
+                  disabled={availableToAdd.length === 0}
+                  block
+                >
+                  添加能力
+                </Button>
+              )}
+            />
+            <Modal
+              title="添加能力"
+              open={addCapOpen}
+              onCancel={() => setAddCapOpen(false)}
+              footer={null}
+              width={480}
+            >
+              {availableToAdd.length === 0 ? (
+                <Typography.Text type="secondary">
+                  所有可用能力已添加
+                </Typography.Text>
+              ) : (
+                <Space direction="vertical" style={{ width: "100%" }}>
+                  {availableToAdd.map((c) => (
+                    <Button
+                      key={catKey(c)}
+                      block
+                      onClick={() => {
+                        setSelectedKeys((prev) => [...prev, catKey(c)]);
+                        setAddCapOpen(false);
                       }}
-                      onClick={() =>
-                        setCapEdits((prev) => ({
-                          ...prev,
-                          [cap.capability]: { ...edit, enabled: !edit.enabled },
-                        }))
-                      }
+                      style={{ textAlign: "left" }}
                     >
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 8,
-                        }}
-                      >
-                        <Checkbox checked={edit.enabled} />
-                        <span style={{ flex: 1 }}>{cap.label}</span>
-                        {cap.providers.length > 1 ? (
-                          <Select
-                            size="small"
-                            value={edit.provider}
-                            onClick={(e) => e.stopPropagation()}
-                            onChange={(v) =>
-                              setCapEdits((prev) => ({
-                                ...prev,
-                                [cap.capability]: { ...edit, provider: v },
-                              }))
-                            }
-                            style={{ width: 110 }}
-                            options={cap.providers.map((p) => ({
-                              label: p.name,
-                              value: p.name,
-                            }))}
-                          />
-                        ) : (
-                          <Tag>{cap.providers[0]?.name}</Tag>
-                        )}
-                      </div>
-                    </Card>
-                  </Col>
-                );
-              })}
-            </Row>
+                      <Space>
+                        <span>{c.label}</span>
+                        <Typography.Text
+                          type="secondary"
+                          style={{ fontSize: 12 }}
+                        >
+                          {c.capability}
+                        </Typography.Text>
+                        <Tag>{c.provider}</Tag>
+                      </Space>
+                    </Button>
+                  ))}
+                </Space>
+              )}
+            </Modal>
           </>
-        )}
-
-        {isEdit && (
-          <Alert
-            type="info"
-            showIcon
-            message="能力配置请前往项目设置页面管理"
-            action={
-              <Button
-                size="small"
-                type="link"
-                onClick={() => navigate(`/projects/${id}/settings`)}
-              >
-                前往设置
-              </Button>
-            }
-            style={{ marginTop: 8 }}
-          />
         )}
 
         <Form.Item style={{ marginTop: 24 }}>

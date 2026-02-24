@@ -4,11 +4,7 @@ from __future__ import annotations
 
 MASK = "***"
 
-CAPABILITY_LABELS: dict[str, str] = {
-    "ai": "AI 编码",
-    "scm": "代码管理",
-    "doc": "文档管理",
-}
+HIDDEN_CAPABILITIES: set[str] = {"doc"}
 
 
 def find_schema(available: list[dict], capability: str,
