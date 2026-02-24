@@ -273,7 +273,7 @@ async def merge_db():
                       status=RoundStatus.active, branch_name="opd/story-1-r1")
             db.add(r)
             await db.flush()
-            pr = PullRequest(round_id=r.id, repo_url="https://github.com/t/r",
+            pr = PullRequest(round_id=r.id,
                              pr_number=42, pr_url="https://github.com/t/r/pull/42",
                              status=PRStatus.open)
             db.add(pr)

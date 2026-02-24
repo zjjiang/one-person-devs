@@ -136,8 +136,7 @@ def build_planning_prompt(story: Story, project: Project) -> tuple[str, str]:
         "1. 概要设计：整体技术方案，包括架构变更、数据模型变更、接口变更\n"
         "2. Task 拆分：将方案拆分为可执行的 Task，标注依赖关系\n\n"
         "输出格式：先输出概要设计（Markdown），然后输出 Task 列表（JSON 数组）：\n"
-        '[{"title": "...", "description": "...", "scope": "...", '
-        '"acceptance_criteria": "...", "order": 1, "depends_on": []}]\n\n'
+        '[{"title": "...", "description": "...", "order": 1, "depends_on": []}]\n\n'
         + build_project_context(project)
         + _COMPLETION_INSTRUCTION
     )

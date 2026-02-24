@@ -148,8 +148,6 @@ class Skill(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
-    description: Mapped[str] = mapped_column(Text, default="")
-    command: Mapped[str] = mapped_column(Text, nullable=False)
     trigger: Mapped[SkillTrigger] = mapped_column(Enum(SkillTrigger), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
@@ -225,10 +223,7 @@ class Task(Base):
     story_id: Mapped[int] = mapped_column(ForeignKey("stories.id"), nullable=False)
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="")
-    scope: Mapped[str] = mapped_column(Text, default="")
-    acceptance_criteria: Mapped[str] = mapped_column(Text, default="")
     order: Mapped[int] = mapped_column(Integer, default=0)
-    repo_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     depends_on: Mapped[list | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
@@ -264,7 +259,6 @@ class PullRequest(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     round_id: Mapped[int] = mapped_column(ForeignKey("rounds.id"), nullable=False)
-    repo_url: Mapped[str] = mapped_column(String(500), nullable=False)
     pr_number: Mapped[int] = mapped_column(Integer, nullable=False)
     pr_url: Mapped[str] = mapped_column(String(500), nullable=False)
     status: Mapped[PRStatus] = mapped_column(Enum(PRStatus), default=PRStatus.open)

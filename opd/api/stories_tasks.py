@@ -79,7 +79,6 @@ async def _post_coding_create_pr(
         )
         db.add(PullRequest(
             round_id=active_round.id,
-            repo_url=repo_url,
             pr_number=pr_info["pr_number"],
             pr_url=pr_info["pr_url"],
         ))
