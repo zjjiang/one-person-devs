@@ -80,7 +80,7 @@ HTTP 请求 → FastAPI 路由 (`opd/api/`) → `Orchestrator`（通过 `opd/api
 - **`stories.py`** — Story 核心生命周期：CRUD、确认/拒绝、聊天、SSE 流式传输、预检。
 - **`stories_tasks.py`** — 后台 AI 任务函数（`_start_ai_stage`、`_start_chat_ai`），带有 `pre_start`（克隆/分支）和 `post_complete`（提交/推送/创建 PR）回调。
 - **`stories_actions.py`** — 状态转换动作：回退、迭代、重启、停止。
-- **`stories_docs.py`** — Story 文档 CRUD：`GET /api/stories/{id}/docs`（列表）、`GET /api/stories/{id}/docs/{filename}`（读取）、`PUT /api/stories/{id}/docs/{filename}`（写入）。
+- **`stories_docs.py`** — Story 文档 CRUD：`GET /api/stories/{id}/docs`（列表）、`GET /api/stories/{id}/docs/{filename}`（读取）、`PUT /api/stories/{id}/docs/{filename}`（写入）、`GET /api/stories/{id}/docs/{filename}/download`（下载 .md 文件）、`POST /api/stories/{id}/docs/upload`（上传 .md 文件替换文档）。
 - **`projects.py`** — 项目 CRUD 及工作区管理。包含同步端点：`POST /api/projects/{id}/sync-context`（触发同步）、`GET /api/projects/{id}/sync-stream`（SSE 流）。
 - **`capabilities.py`** — Capability 健康检查和配置。
 - **`capability_utils.py`** — 跨 capability 端点的配置掩码/解掩码共享辅助函数。

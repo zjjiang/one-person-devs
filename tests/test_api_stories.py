@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -405,3 +405,115 @@ class TestStoryDocs:
             async with db.begin():
                 result = await save_story_doc(1, "custom.md", UpdateDocRequest(content="x"), db)
                 assert result["filename"] == "custom.md"
+
+    # ── download ──
+
+    @patch("opd.api.stories_docs.read_doc", return_value="# PRD content")
+    async def test_download_doc(self, mock_read, story_db):
+        from opd.api.stories_docs import download_story_doc
+
+        async with story_db() as db:
+            async with db.begin():
+                resp = await download_story_doc(1, "prd.md", db)
+                assert resp.body == b"# PRD content"
+                assert resp.media_type == "text/markdown"
+                disp = resp.headers["content-disposition"]
+                assert 'filename="story-1-prd.md"' in disp
+
+    async def test_download_doc_story_not_found(self, story_db):
+        from opd.api.stories_docs import download_story_doc
+
+        async with story_db() as db:
+            async with db.begin():
+                with pytest.raises(HTTPException) as exc_info:
+                    await download_story_doc(999, "prd.md", db)
+                assert exc_info.value.status_code == 404
+                assert "Story" in exc_info.value.detail
+
+    @patch("opd.api.stories_docs.read_doc", return_value=None)
+    async def test_download_doc_not_found(self, mock_read, story_db):
+        from opd.api.stories_docs import download_story_doc
+
+        async with story_db() as db:
+            async with db.begin():
+                with pytest.raises(HTTPException) as exc_info:
+                    await download_story_doc(1, "prd.md", db)
+                assert exc_info.value.status_code == 404
+                assert "Document" in exc_info.value.detail
+
+    # ── upload ──
+
+    @patch("opd.api.stories_docs.write_doc", return_value="docs/stories/1/prd.md")
+    async def test_upload_doc(self, mock_write, story_db):
+        from opd.api.stories_docs import upload_story_doc
+
+        file = MagicMock()
+        file.filename = "prd.md"
+        file.read = AsyncMock(return_value=b"# Uploaded PRD")
+
+        async with story_db() as db:
+            async with db.begin():
+                result = await upload_story_doc(1, file, db)
+                assert result["filename"] == "prd.md"
+                assert result["path"] == "docs/stories/1/prd.md"
+                mock_write.assert_called_once()
+                # Verify DB field was updated
+                row = await db.execute(select(Story).where(Story.id == 1))
+                story = row.scalar_one()
+                assert story.prd == "docs/stories/1/prd.md"
+
+    async def test_upload_invalid_extension(self, story_db):
+        from opd.api.stories_docs import upload_story_doc
+
+        file = MagicMock()
+        file.filename = "readme.txt"
+        file.read = AsyncMock(return_value=b"text")
+
+        async with story_db() as db:
+            async with db.begin():
+                with pytest.raises(HTTPException) as exc_info:
+                    await upload_story_doc(1, file, db)
+                assert exc_info.value.status_code == 400
+                assert ".md" in exc_info.value.detail
+
+    async def test_upload_unknown_filename(self, story_db):
+        from opd.api.stories_docs import upload_story_doc
+
+        file = MagicMock()
+        file.filename = "random.md"
+        file.read = AsyncMock(return_value=b"# content")
+
+        async with story_db() as db:
+            async with db.begin():
+                with pytest.raises(HTTPException) as exc_info:
+                    await upload_story_doc(1, file, db)
+                assert exc_info.value.status_code == 400
+                assert "Unknown document" in exc_info.value.detail
+
+    async def test_upload_non_utf8(self, story_db):
+        from opd.api.stories_docs import upload_story_doc
+
+        file = MagicMock()
+        file.filename = "prd.md"
+        file.read = AsyncMock(return_value=b"\xff\xfe\x00\x01")
+
+        async with story_db() as db:
+            async with db.begin():
+                with pytest.raises(HTTPException) as exc_info:
+                    await upload_story_doc(1, file, db)
+                assert exc_info.value.status_code == 400
+                assert "UTF-8" in exc_info.value.detail
+
+    @patch("opd.api.stories_docs.write_doc", return_value="docs/stories/1/prd.md")
+    async def test_upload_story_not_found(self, mock_write, story_db):
+        from opd.api.stories_docs import upload_story_doc
+
+        file = MagicMock()
+        file.filename = "prd.md"
+        file.read = AsyncMock(return_value=b"# PRD")
+
+        async with story_db() as db:
+            async with db.begin():
+                with pytest.raises(HTTPException) as exc_info:
+                    await upload_story_doc(999, file, db)
+                assert exc_info.value.status_code == 404
