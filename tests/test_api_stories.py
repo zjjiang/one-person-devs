@@ -153,6 +153,62 @@ class TestConfirmStage:
                 assert exc_info.value.status_code == 400
                 assert "coding" in str(exc_info.value.detail)
 
+    @patch("opd.api.stories._start_ai_stage")
+    async def test_confirm_coding_blocked_by_same_project(self, mock_start, story_db):
+        """Confirm → coding returns 409 when same project already has a coding task."""
+        from opd.api.stories import confirm_stage
+
+        orch = MagicMock()
+        orch.has_coding_task.return_value = True  # Simulate existing coding task
+
+        # Set story to designing (next confirm → coding)
+        async with story_db() as db:
+            async with db.begin():
+                result = await db.execute(select(Story).where(Story.id == 1))
+                story = result.scalar_one()
+                story.status = StoryStatus.designing
+        async with story_db() as db:
+            async with db.begin():
+                with pytest.raises(HTTPException) as exc_info:
+                    await confirm_stage(1, db, orch)
+                assert exc_info.value.status_code == 409
+                assert "编码中" in str(exc_info.value.detail)
+                mock_start.assert_not_called()
+
+    @patch("opd.api.stories._start_ai_stage")
+    async def test_confirm_coding_allowed_when_no_conflict(self, mock_start, story_db):
+        """Confirm → coding succeeds when no other coding task on same project."""
+        from opd.api.stories import confirm_stage
+
+        orch = MagicMock()
+        orch.has_coding_task.return_value = False
+
+        # Set story to designing
+        async with story_db() as db:
+            async with db.begin():
+                result = await db.execute(select(Story).where(Story.id == 1))
+                story = result.scalar_one()
+                story.status = StoryStatus.designing
+        async with story_db() as db:
+            async with db.begin():
+                result = await confirm_stage(1, db, orch)
+                assert result["status"] == "coding"
+                mock_start.assert_called_once()
+
+    @patch("opd.api.stories._start_ai_stage")
+    async def test_confirm_non_coding_not_blocked(self, mock_start, story_db):
+        """Confirm → clarifying is never blocked, even if has_coding_task is True."""
+        from opd.api.stories import confirm_stage
+
+        orch = MagicMock()
+        orch.has_coding_task.return_value = True  # Would block coding, but not other stages
+
+        async with story_db() as db:
+            async with db.begin():
+                result = await confirm_stage(1, db, orch)
+                # preparing → clarifying, should succeed
+                assert result["status"] == "clarifying"
+
 
 # ── reject_stage ──
 

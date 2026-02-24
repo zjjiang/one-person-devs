@@ -170,7 +170,7 @@ async def iterate_story(story_id: int, req: IterateRequest | None = None,
     delete_doc(story.project, story, "coding_report.md")
     delete_doc(story.project, story, "test_guide.md")
     await db.flush()
-    _start_ai_stage(story.id, orch)
+    _start_ai_stage(story.id, orch, project_id=story.project_id)
     return {"id": story.id, "status": "coding", "action": "iterate"}
 
 
@@ -203,7 +203,8 @@ async def restart_story(story_id: int, req: IterateRequest | None = None,
     # Discard old coding branch
     if old_branch:
         try:
-            await discard_branch(story.project, old_branch)
+            async with orch.get_workspace_lock(story.project_id):
+                await discard_branch(story.project, old_branch)
         except Exception:
             logger.warning("Failed to discard branch %s", old_branch, exc_info=True)
 
@@ -281,7 +282,8 @@ async def merge_story_pr(
 
     # Pull main to keep workspace up to date
     try:
-        await pull_main(story.project)
+        async with orch.get_workspace_lock(story.project_id):
+            await pull_main(story.project)
     except Exception:
         logger.warning("pull_main failed after merge for story %s", story_id, exc_info=True)
 

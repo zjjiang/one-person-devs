@@ -4,12 +4,22 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 
 from opd.capabilities.registry import CapabilityRegistry, build_capability_overrides
 from opd.engine.stages.base import Stage, StageContext, StageResult
 from opd.engine.state_machine import StateMachine
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class TaskInfo:
+    """Metadata for a registered background task."""
+
+    task: asyncio.Task
+    project_id: int | None = None
+    task_type: str = ""  # "ai_stage", "chat", "sync", "clone", etc.
 
 
 class Orchestrator:
@@ -21,7 +31,9 @@ class Orchestrator:
         self._sm = state_machine
         self._caps = capabilities
         # Background task tracking
-        self._running_tasks: dict[str, asyncio.Task] = {}
+        self._running_tasks: dict[str, TaskInfo] = {}
+        # Per-project workspace locks (lazily created)
+        self._workspace_locks: dict[int, asyncio.Lock] = {}
         # SSE pub/sub
         self._subscribers: dict[str, list[asyncio.Queue]] = {}
 
@@ -33,15 +45,43 @@ class Orchestrator:
 
     def is_task_running(self, key: str) -> bool:
         """Check if a background task is registered under the given key."""
-        return key in self._running_tasks
+        info = self._running_tasks.get(key)
+        return info is not None and not info.task.done()
 
-    def register_task(self, key: str, task: asyncio.Task) -> None:
+    def register_task(self, key: str, task: asyncio.Task, *,
+                      project_id: int | None = None, task_type: str = "") -> None:
         """Register a background task for tracking."""
-        self._running_tasks[key] = task
+        self._running_tasks[key] = TaskInfo(
+            task=task, project_id=project_id, task_type=task_type,
+        )
 
     def unregister_task(self, key: str) -> None:
         """Remove a background task from tracking."""
         self._running_tasks.pop(key, None)
+
+    def get_workspace_lock(self, project_id: int) -> asyncio.Lock:
+        """Return (lazily create) a per-project workspace lock."""
+        lock = self._workspace_locks.get(project_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._workspace_locks[project_id] = lock
+        return lock
+
+    def has_coding_task(self, project_id: int) -> bool:
+        """Check if any ai_stage task is running for the given project."""
+        for info in self._running_tasks.values():
+            if (info.project_id == project_id
+                    and info.task_type == "ai_stage"
+                    and not info.task.done()):
+                return True
+        return False
+
+    def running_task_count(self, project_id: int) -> int:
+        """Count running tasks for a given project."""
+        return sum(
+            1 for info in self._running_tasks.values()
+            if info.project_id == project_id and not info.task.done()
+        )
 
     # --- SSE Pub/Sub ---
 
@@ -99,11 +139,11 @@ class Orchestrator:
 
         return result
 
-    def stop_task(self, round_id: str) -> bool:
+    def stop_task(self, key: str) -> bool:
         """Cancel a running background task."""
-        task = self._running_tasks.get(round_id)
-        if task and not task.done():
-            task.cancel()
+        info = self._running_tasks.get(key)
+        if info and not info.task.done():
+            info.task.cancel()
             return True
         return False
 

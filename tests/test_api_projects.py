@@ -62,25 +62,25 @@ class TestListProjects:
 
 
 class TestGetProject:
-    async def test_get_ok(self, project_db):
+    async def test_get_ok(self, project_db, orchestrator):
         from opd.api.projects import get_project
 
         async with project_db() as db:
             async with db.begin():
-                result = await get_project(1, db)
+                result = await get_project(1, db, orchestrator)
                 assert result["name"] == "test-proj"
                 assert result["tech_stack"] == "Python"
                 assert "rules" in result
                 assert "stories" in result
 
-    async def test_get_not_found(self, project_db):
+    async def test_get_not_found(self, project_db, orchestrator):
         from fastapi import HTTPException
         from opd.api.projects import get_project
 
         async with project_db() as db:
             async with db.begin():
                 with pytest.raises(HTTPException) as exc_info:
-                    await get_project(999, db)
+                    await get_project(999, db, orchestrator)
                 assert exc_info.value.status_code == 404
 
 

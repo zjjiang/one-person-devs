@@ -118,7 +118,8 @@ async def _build_project_registry(db, orch: Orchestrator, project_id: int):
     return registry
 
 
-def _start_ai_stage(story_id: int, orch: Orchestrator) -> None:
+def _start_ai_stage(story_id: int, orch: Orchestrator,
+                    project_id: int | None = None) -> None:
     """Launch AI stage execution as a background task."""
 
     async def _run() -> None:
@@ -188,8 +189,10 @@ def _start_ai_stage(story_id: int, orch: Orchestrator) -> None:
                         branch = generate_branch_name(
                             story.id, active_round.round_number,
                         )
+                        lock = orch.get_workspace_lock(story.project_id)
                         try:
-                            await create_coding_branch(story.project, branch)
+                            async with lock:
+                                await create_coding_branch(story.project, branch)
                             active_round.branch_name = branch
                             async with session_factory() as db2:
                                 async with db2.begin():
@@ -252,10 +255,12 @@ def _start_ai_stage(story_id: int, orch: Orchestrator) -> None:
             logger.exception("Background task crashed for story %s", story_id)
 
     task = asyncio.create_task(_run())
-    orch.register_task(str(story_id), task)
+    orch.register_task(str(story_id), task,
+                       project_id=project_id, task_type="ai_stage")
 
 
-def _start_chat_ai(story_id: int, user_message: str, orch: Orchestrator) -> None:
+def _start_chat_ai(story_id: int, user_message: str, orch: Orchestrator,
+                   project_id: int | None = None) -> None:
     """Launch AI chat refinement as a background task."""
 
     async def _run() -> None:
@@ -382,4 +387,5 @@ def _start_chat_ai(story_id: int, user_message: str, orch: Orchestrator) -> None
             logger.exception("Chat background task crashed for story %s", story_id)
 
     task = asyncio.create_task(_run())
-    orch.register_task(f"chat_{story_id}", task)
+    orch.register_task(f"chat_{story_id}", task,
+                       project_id=project_id, task_type="chat")

@@ -60,7 +60,7 @@ async def create_story(
     db.add(round_)
     await db.flush()
     story_id = story.id
-    _start_ai_stage(story_id, orch)
+    _start_ai_stage(story_id, orch, project_id=project_id)
     return {"id": story_id, "status": story.status.value}
 
 
@@ -169,6 +169,14 @@ async def confirm_stage(
         raise HTTPException(status_code=400, detail=f"Cannot confirm in status: {status}")
 
     next_status = next_status_map[status]
+
+    # Block concurrent coding within the same project
+    if next_status == "coding" and orch.has_coding_task(story.project_id):
+        raise HTTPException(
+            status_code=409,
+            detail="该项目已有 Story 在编码中，请等待完成",
+        )
+
     if status == "clarifying" and not story.confirmed_prd:
         story.confirmed_prd = story.prd
 
@@ -185,7 +193,7 @@ async def confirm_stage(
                 next_status, story_id,
             )
         else:
-            _start_ai_stage(story.id, orch)
+            _start_ai_stage(story.id, orch, project_id=story.project_id)
 
     return {"id": story.id, "status": next_status, "skipped_ai": skipped_ai}
 
@@ -198,7 +206,7 @@ async def reject_stage(story_id: int, db: AsyncSession = Depends(get_db),
     story = result.scalar_one_or_none()
     if not story:
         raise HTTPException(status_code=404, detail="Story not found")
-    _start_ai_stage(story.id, orch)
+    _start_ai_stage(story.id, orch, project_id=story.project_id)
     return {"id": story.id, "status": story.status.value, "message": "Stage re-triggered"}
 
 
@@ -290,7 +298,7 @@ async def chat_message(
     ))
     await db.flush()
 
-    _start_chat_ai(story.id, req.message, orch)
+    _start_chat_ai(story.id, req.message, orch, project_id=story.project_id)
     return {"status": "processing"}
 
 

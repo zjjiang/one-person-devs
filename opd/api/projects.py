@@ -167,7 +167,8 @@ async def list_projects(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/{project_id}")
-async def get_project(project_id: int, db: AsyncSession = Depends(get_db)):
+async def get_project(project_id: int, db: AsyncSession = Depends(get_db),
+                      orch: Orchestrator = Depends(get_orch)):
     result = await db.execute(
         select(Project)
         .where(Project.id == project_id)
@@ -207,6 +208,7 @@ async def get_project(project_id: int, db: AsyncSession = Depends(get_db)):
             {"id": s.id, "title": s.title, "status": s.status.value}
             for s in project.stories
         ],
+        "ai_running_count": orch.running_task_count(project_id),
     }
 
 
