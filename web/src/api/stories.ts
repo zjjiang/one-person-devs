@@ -96,3 +96,20 @@ export const mergeStoryPR = (id: number) =>
     `/api/stories/${id}/merge`,
     { method: "POST" },
   );
+
+export const getStoryDocDownloadUrl = (id: number, filename: string) =>
+  `/api/stories/${id}/docs/${filename}/download`;
+
+export const uploadStoryDoc = async (id: number, file: File) => {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`/api/stories/${id}/docs/upload`, {
+    method: "POST",
+    body: form,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `HTTP ${res.status}`);
+  }
+  return res.json() as Promise<{ filename: string; path: string }>;
+};

@@ -30,6 +30,8 @@ import {
   BranchesOutlined,
   MergeCellsOutlined,
   HomeOutlined,
+  DownloadOutlined,
+  UploadOutlined,
 } from "@ant-design/icons";
 import { useParams, Link } from "react-router-dom";
 import {
@@ -43,6 +45,8 @@ import {
   saveStoryDoc,
   rollbackStory,
   mergeStoryPR,
+  getStoryDocDownloadUrl,
+  uploadStoryDoc,
 } from "../api/stories";
 import type { Story } from "../types";
 import { STAGE_LABELS } from "../types";
@@ -297,6 +301,38 @@ export default function StoryDetail() {
       }
     }
     refresh();
+  };
+
+  const handleDownloadDoc = () => {
+    const meta = DOC_META[activeDocTab];
+    if (!meta) return;
+    const url = getStoryDocDownloadUrl(story.id, meta.filename);
+    window.open(url, "_blank");
+  };
+
+  const handleUploadDoc = () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".md";
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const meta = DOC_META[activeDocTab];
+      if (!meta) return;
+      // Rename to match expected filename
+      const renamed = new File([file], meta.filename, { type: file.type });
+      try {
+        const content = await file.text();
+        await uploadStoryDoc(story.id, renamed);
+        setLocalDocs((prev) => ({ ...prev, [activeDocTab]: content }));
+        message.success(`${meta.label} 已上传`);
+        const updated = await getStory(story.id);
+        setStory(updated);
+      } catch {
+        message.error("上传失败");
+      }
+    };
+    input.click();
   };
 
   const handleRollback = async (targetStage: string) => {
@@ -585,6 +621,27 @@ export default function StoryDetail() {
               items={docTabItems}
               size="small"
               destroyInactiveTabPane
+              tabBarExtraContent={
+                <Space size={4}>
+                  <Tooltip title="下载文档">
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={<DownloadOutlined />}
+                      disabled={!localDocs[activeDocTab as keyof LocalDocs]}
+                      onClick={handleDownloadDoc}
+                    />
+                  </Tooltip>
+                  <Tooltip title="上传文档">
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={<UploadOutlined />}
+                      onClick={handleUploadDoc}
+                    />
+                  </Tooltip>
+                </Space>
+              }
             />
           </Card>
         ) : showConsole ? (
