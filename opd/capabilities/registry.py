@@ -33,7 +33,7 @@ _BUILTIN_PROVIDERS: dict[str, dict[str, str]] = {
     },
     "notification": {
         "feishu": "opd.providers.notification.feishu:FeishuProvider",
-        "ruflow": "opd.providers.notification.ruflow:RuflowProvider",
+        "infoflow": "opd.providers.notification.infoflow:InfoFlowProvider",
     },
     "requirement": {
         "jira": "opd.providers.requirement.jira:JiraProvider",

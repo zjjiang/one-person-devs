@@ -1,12 +1,12 @@
-"""如流 Notification Provider."""
+"""如流 (InfoFlow) Notification Provider."""
 
 from __future__ import annotations
 
 from opd.capabilities.base import HealthStatus, Provider
 
 
-class RuflowProvider(Provider):
-    """Notification provider for 如流."""
+class InfoFlowProvider(Provider):
+    """Notification provider for 如流 (InfoFlow)."""
 
     CONFIG_SCHEMA = [
         {"name": "webhook_url", "label": "Webhook URL", "type": "text", "required": True},
