@@ -60,17 +60,21 @@ class TestStopStory:
     async def test_stop_ok(self):
         from opd.api.stories_actions import stop_story
 
+        db = AsyncMock()
+        db.execute = AsyncMock(return_value=AsyncMock(scalar_one_or_none=AsyncMock(return_value=None)))
         orch = MagicMock()
         orch.stop_task.return_value = True
-        result = await stop_story(1, orch)
+        result = await stop_story(1, db, orch)
         assert result["stopped"] is True
 
     async def test_stop_no_task(self):
         from opd.api.stories_actions import stop_story
 
+        db = AsyncMock()
+        db.execute = AsyncMock(return_value=AsyncMock(scalar_one_or_none=AsyncMock(return_value=None)))
         orch = MagicMock()
         orch.stop_task.return_value = False
-        result = await stop_story(1, orch)
+        result = await stop_story(1, db, orch)
         assert result["stopped"] is False
 
 

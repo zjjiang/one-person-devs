@@ -381,20 +381,50 @@ async def stream_messages(story_id: int, mode: str = "",
 
 
 @router.get("/stories/{story_id}/preflight")
-async def preflight_check(story_id: int, db: AsyncSession = Depends(get_db),
-                          orch: Orchestrator = Depends(get_orch)):
-    """Check capability health for the next stage."""
+async def preflight_check(
+    story_id: int,
+    db: AsyncSession = Depends(get_db),
+    orch: Orchestrator = Depends(get_orch),
+):
+    """Check capability health and workspace lock for the next stage."""
     result = await db.execute(select(Story).where(Story.id == story_id))
     story = result.scalar_one_or_none()
     if not story:
         raise HTTPException(status_code=404, detail="Story not found")
 
     status = ensure_status_value(story.status)
+
+    # Check workspace lock if entering coding stage
+    if status == "coding":
+        from opd.engine.workspace_lock import check_workspace_lock
+
+        locked_by = await check_workspace_lock(db, story.project_id)
+        if locked_by and locked_by != story_id:
+            # Query locking story info
+            stmt = select(Story).where(Story.id == locked_by)
+            result = await db.execute(stmt)
+            locked_story = result.scalar_one_or_none()
+
+            return {
+                "ok": False,
+                "can_start": False,
+                "reason": "workspace_locked",
+                "locked_by_story_id": locked_by,
+                "locked_by_story_title": locked_story.title if locked_story else None,
+                "errors": [f"工作区被 Story #{locked_by} 占用"],
+                "warnings": [],
+            }
+
     stage = orch.get_stage(status)
     if not stage:
-        return {"capabilities": {}, "ok": True}
+        return {"capabilities": {}, "ok": True, "can_start": True, "errors": [], "warnings": []}
 
     preflight = await orch.capabilities.preflight(
         stage.required_capabilities, stage.optional_capabilities
     )
-    return {"ok": preflight.ok, "errors": preflight.errors, "warnings": preflight.warnings}
+    return {
+        "ok": preflight.ok,
+        "can_start": preflight.ok,
+        "errors": preflight.errors,
+        "warnings": preflight.warnings,
+    }

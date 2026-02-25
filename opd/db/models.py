@@ -118,6 +118,11 @@ class Project(Base):
         Enum(WorkspaceStatus), default=WorkspaceStatus.pending
     )
     workspace_error: Mapped[str] = mapped_column(String(2000), default="")
+    # Workspace lock fields
+    locked_by_story_id: Mapped[int | None] = mapped_column(
+        ForeignKey("stories.id", ondelete="SET NULL"), nullable=True
+    )
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now()
     )
@@ -130,10 +135,15 @@ class Project(Base):
         back_populates="project", cascade="all, delete-orphan"
     )
     stories: Mapped[list[Story]] = relationship(
-        back_populates="project", cascade="all, delete-orphan"
+        foreign_keys="Story.project_id",
+        back_populates="project",
+        cascade="all, delete-orphan",
     )
     capability_configs: Mapped[list[ProjectCapabilityConfig]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
+    )
+    locked_by_story: Mapped[Story | None] = relationship(
+        foreign_keys=[locked_by_story_id], back_populates="locked_project"
     )
 
 
@@ -197,6 +207,8 @@ class Story(Base):
         Enum(StoryStatus), default=StoryStatus.preparing
     )
     current_round: Mapped[int] = mapped_column(Integer, default=1)
+    # Workspace lock holder flag
+    has_workspace_lock: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     # Stage outputs
     raw_input: Mapped[str] = mapped_column(Text, default="")
     prd: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -214,13 +226,18 @@ class Story(Base):
         DateTime, server_default=func.now(), onupdate=func.now()
     )
 
-    project: Mapped[Project] = relationship(back_populates="stories")
+    project: Mapped[Project] = relationship(
+        foreign_keys=[project_id], back_populates="stories"
+    )
     tasks: Mapped[list[Task]] = relationship(back_populates="story", cascade="all, delete-orphan")
     rounds: Mapped[list[Round]] = relationship(
         back_populates="story", cascade="all, delete-orphan"
     )
     clarifications: Mapped[list[Clarification]] = relationship(
         back_populates="story", cascade="all, delete-orphan"
+    )
+    locked_project: Mapped[Project | None] = relationship(
+        foreign_keys="Project.locked_by_story_id", back_populates="locked_by_story"
     )
 
 

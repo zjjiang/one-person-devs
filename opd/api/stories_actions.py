@@ -232,9 +232,34 @@ async def restart_story(story_id: int, req: IterateRequest | None = None,
 
 
 @actions_router.post("/stories/{story_id}/stop")
-async def stop_story(story_id: int, orch: Orchestrator = Depends(get_orch)):
+async def stop_story(
+    story_id: int,
+    db: AsyncSession = Depends(get_db),
+    orch: Orchestrator = Depends(get_orch),
+):
     """Emergency stop current AI task."""
     stopped = orch.stop_task(str(story_id))
+
+    # Try to release workspace lock if story holds it
+    try:
+        result = await db.execute(select(Story).where(Story.id == story_id))
+        story = result.scalar_one_or_none()
+
+        if story and story.has_workspace_lock:
+            from opd.engine.workspace_lock import release_workspace_lock
+
+            try:
+                await release_workspace_lock(db, story.project_id, story_id)
+                logger.info("Released workspace lock for stopped story %s", story_id)
+            except Exception:
+                logger.warning(
+                    "Failed to release workspace lock for stopped story %s",
+                    story_id, exc_info=True,
+                )
+    except Exception:
+        # Don't fail stop operation if lock release fails
+        logger.warning("Error checking/releasing lock for story %s", story_id, exc_info=True)
+
     return {"stopped": stopped}
 
 
