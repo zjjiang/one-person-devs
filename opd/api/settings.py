@@ -12,7 +12,7 @@ from opd.api.capability_utils import (
     HIDDEN_CAPABILITIES, find_schema, mask_config, unmask_passwords,
 )
 from opd.api.deps import get_db, get_orch
-from opd.capabilities.registry import _CAPABILITY_LABELS
+from opd.capabilities.registry import _CAPABILITY_LABELS, _PROVIDER_LABELS
 from opd.db.models import GlobalCapabilityConfig
 from opd.engine.orchestrator import Orchestrator
 from opd.models.schemas import (
@@ -42,6 +42,7 @@ async def get_global_capabilities(
             "id": row.id,
             "capability": row.capability,
             "provider": row.provider,
+            "provider_label": _PROVIDER_LABELS.get(row.provider, row.provider),
             "label": row.label or _CAPABILITY_LABELS.get(row.capability, row.capability),
             "config_schema": schema,
             "enabled": row.enabled,
@@ -67,6 +68,7 @@ async def get_available_capabilities(
                 "capability": cap_name,
                 "label": label,
                 "provider": p["name"],
+                "provider_label": p.get("label", p["name"]),
                 "config_schema": p.get("config_schema", []),
             })
     return items

@@ -283,10 +283,14 @@ async def merge_db():
 
 
 class TestMergeStoryPR:
-    @patch("opd.api.stories_actions.launch_incremental_claude_md_update")
+    @patch("opd.api.stories_actions.send_notification", new_callable=AsyncMock)
+    @patch("opd.api.stories_actions.get_session_factory", return_value=MagicMock())
+    @patch("opd.api.stories_actions._get_site_url", return_value="http://localhost:5173")
+    @patch("opd.api.stories_actions.get_latest_merge_diff", new_callable=AsyncMock, return_value=None)
     @patch("opd.api.stories_actions.pull_main", new_callable=AsyncMock)
     @patch("opd.api.stories_actions._build_project_registry")
-    async def test_merge_ok(self, mock_registry, mock_pull, mock_launch, merge_db):
+    async def test_merge_ok(self, mock_registry, mock_pull, mock_diff,
+                            mock_site_url, mock_sf, mock_notify, merge_db):
         from opd.api.stories_actions import merge_story_pr
 
         scm_mock = AsyncMock()
@@ -302,7 +306,6 @@ class TestMergeStoryPR:
                 assert result["pr_number"] == 42
                 scm_mock.merge_pull_request.assert_called_once()
                 mock_pull.assert_called_once()
-                mock_launch.assert_called_once()
 
     async def test_merge_not_found(self, merge_db):
         from opd.api.stories_actions import merge_story_pr

@@ -17,7 +17,7 @@ export default function StoryForm() {
     try {
       const res = await createStory(Number(projectId), values);
       message.success("Story 已创建");
-      navigate(`/stories/${res.id}`);
+      navigate(`/projects/${projectId}/stories/${res.id}`);
     } catch {
       message.error("创建失败");
     } finally {
@@ -26,7 +26,7 @@ export default function StoryForm() {
   };
 
   return (
-    <div style={{ maxWidth: 640, margin: "0 auto" }}>
+    <div>
       <Typography.Title level={4}>新建 Story</Typography.Title>
       <Card>
         <Form layout="vertical" onFinish={onFinish}>

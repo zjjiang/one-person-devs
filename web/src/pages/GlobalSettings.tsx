@@ -118,11 +118,11 @@ export default function GlobalSettings() {
       });
       if (res.healthy)
         message.success(
-          `${record.label}/${record.provider}: ${res.message || "连接成功"}`,
+          `${record.label}/${record.provider_label}: ${res.message || "连接成功"}`,
         );
       else
         message.error(
-          `${record.label}/${record.provider}: ${res.message || "连接失败"}`,
+          `${record.label}/${record.provider_label}: ${res.message || "连接失败"}`,
         );
     } catch {
       message.error("测试失败");
@@ -182,9 +182,12 @@ export default function GlobalSettings() {
   };
 
   // Available capability types for the add modal
-  const capOptions = [...new Set(available.map((a) => a.capability))];
+  const capOptionSet = [...new Set(available.map((a) => a.capability))];
+  const capLabelMap = Object.fromEntries(
+    available.map((a) => [a.capability, a.label]),
+  );
   const providerOptionsForCap = (cap: string) =>
-    available.filter((a) => a.capability === cap).map((a) => a.provider);
+    available.filter((a) => a.capability === cap);
 
   const expandedRowRender = (record: GlobalCapabilityItem) => {
     const edit = getEdit(record.id);
@@ -216,10 +219,11 @@ export default function GlobalSettings() {
                 onChange={(v) => updateConfigField(record.id, field.name, v)}
                 style={{ maxWidth: 320 }}
                 placeholder="请选择"
-                options={(field.options || []).map((o) => ({
-                  label: o,
-                  value: o,
-                }))}
+                options={(field.options || []).map((o: unknown) =>
+                  typeof o === "string"
+                    ? { label: o, value: o }
+                    : (o as { label: string; value: string }),
+                )}
               />
             ) : (
               <Input
@@ -283,10 +287,12 @@ export default function GlobalSettings() {
       },
     },
     {
-      title: "Provider",
+      title: "服务提供方",
       key: "provider",
       width: 160,
-      render: (_: unknown, r: GlobalCapabilityItem) => <Tag>{r.provider}</Tag>,
+      render: (_: unknown, r: GlobalCapabilityItem) => (
+        <Tag>{r.provider_label}</Tag>
+      ),
     },
     {
       title: "状态",
@@ -411,20 +417,23 @@ export default function GlobalSettings() {
                 setAddProvider(undefined);
               }}
               placeholder="选择能力类型"
-              options={capOptions.map((c) => ({ label: c, value: c }))}
+              options={capOptionSet.map((c) => ({
+                label: capLabelMap[c] || c,
+                value: c,
+              }))}
             />
           </Form.Item>
-          <Form.Item label="Provider">
+          <Form.Item label="服务提供方">
             <Select
               value={addProvider}
               onChange={setAddProvider}
-              placeholder="选择 Provider"
+              placeholder="选择服务提供方"
               disabled={!addCap}
               options={
                 addCap
-                  ? providerOptionsForCap(addCap).map((p) => ({
-                      label: p,
-                      value: p,
+                  ? providerOptionsForCap(addCap).map((a) => ({
+                      label: a.provider_label,
+                      value: a.provider,
                     }))
                   : []
               }

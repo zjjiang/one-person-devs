@@ -25,6 +25,7 @@ import {
 import { useNavigate, useParams, Link } from "react-router-dom";
 import { getProject, initWorkspace, syncContext } from "../api/projects";
 import type { Project } from "../types";
+import { STAGE_LABELS } from "../types";
 import SyncConsole from "../components/SyncConsole";
 
 const statusColor: Record<string, string> = {
@@ -150,6 +151,22 @@ export default function ProjectDetail() {
           <Descriptions.Item label="技术栈">
             {project.tech_stack || "-"}
           </Descriptions.Item>
+          <Descriptions.Item label="已启用能力">
+            {project.capability_configs.filter((c) => c.enabled).length > 0 ? (
+              <Space size={[4, 4]} wrap>
+                {project.capability_configs
+                  .filter((c) => c.enabled)
+                  .map((c) => (
+                    <Tag key={c.capability} color="blue">
+                      {c.capability_label}
+                      {c.provider_label ? ` · ${c.provider_label}` : ""}
+                    </Tag>
+                  ))}
+              </Space>
+            ) : (
+              <Typography.Text type="secondary">未配置</Typography.Text>
+            )}
+          </Descriptions.Item>
           <Descriptions.Item label="工作区">
             <Tag
               color={
@@ -187,14 +204,14 @@ export default function ProjectDetail() {
           items={[
             {
               key: "stories",
-              label: `Stories (${project.stories.length})`,
+              label: `用户故事 (${project.stories.length})`,
               children: (
                 <Table
                   rowKey="id"
                   dataSource={project.stories}
                   pagination={false}
                   onRow={(r) => ({
-                    onClick: () => navigate(`/stories/${r.id}`),
+                    onClick: () => navigate(`/projects/${id}/stories/${r.id}`),
                     style: { cursor: "pointer" },
                   })}
                   columns={[
@@ -204,7 +221,7 @@ export default function ProjectDetail() {
                       dataIndex: "status",
                       width: 120,
                       render: (s: string) => (
-                        <Tag color={statusColor[s]}>{s}</Tag>
+                        <Tag color={statusColor[s]}>{STAGE_LABELS[s] || s}</Tag>
                       ),
                     },
                   ]}

@@ -93,7 +93,7 @@ interface LocalDocs {
 }
 
 export default function StoryDetail() {
-  const { id } = useParams();
+  const { id, pid: _pid } = useParams();
   const [story, setStory] = useState<Story | null>(null);
   const [localDocs, setLocalDocs] = useState<LocalDocs>({
     prd: "",
@@ -108,6 +108,7 @@ export default function StoryDetail() {
     "qa" | "chat" | "info" | "console"
   >("chat");
   const [saving, setSaving] = useState(false);
+  const [merging, setMerging] = useState(false);
   const [iterateModal, setIterateModal] = useState<{
     open: boolean;
     action: "iterate" | "restart";
@@ -250,12 +251,15 @@ export default function StoryDetail() {
   };
 
   const handleMerge = async () => {
+    setMerging(true);
     try {
       const res = await mergeStoryPR(story.id);
       message.success(`PR #${res.pr_number} 已合并`);
       refresh();
     } catch {
       message.error("合并失败");
+    } finally {
+      setMerging(false);
     }
   };
 
@@ -475,7 +479,7 @@ export default function StoryDetail() {
           <Typography.Title level={4} style={{ margin: 0 }}>
             {story.title}
           </Typography.Title>
-          <Tag>{story.status}</Tag>
+          <Tag>{STAGE_LABELS[story.status] || story.status}</Tag>
           <span style={{ color: "#888", fontSize: 12 }}>
             轮次 {story.current_round}
           </span>
@@ -525,7 +529,11 @@ export default function StoryDetail() {
           )}
           {hasOpenPR &&
             (story.status === "verifying" || story.status === "done") && (
-              <Button icon={<MergeCellsOutlined />} onClick={handleMerge}>
+              <Button
+                icon={<MergeCellsOutlined />}
+                onClick={handleMerge}
+                loading={merging}
+              >
                 Merge PR
               </Button>
             )}

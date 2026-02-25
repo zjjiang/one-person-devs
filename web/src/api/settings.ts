@@ -12,6 +12,7 @@ export interface GlobalCapabilityItem {
   id: number;
   capability: string;
   provider: string;
+  provider_label: string;
   label: string;
   config_schema: ConfigSchemaField[];
   enabled: boolean;
@@ -22,6 +23,7 @@ export interface AvailableCapability {
   capability: string;
   label: string;
   provider: string;
+  provider_label: string;
   config_schema: ConfigSchemaField[];
 }
 

@@ -32,6 +32,7 @@ _BUILTIN_PROVIDERS: dict[str, dict[str, str]] = {
         "docker": "opd.providers.sandbox.docker_sandbox:DockerSandboxProvider",
     },
     "notification": {
+        "inbox": "opd.providers.notification.inbox:InboxProvider",
         "feishu": "opd.providers.notification.feishu:FeishuProvider",
         "infoflow": "opd.providers.notification.infoflow:InfoFlowProvider",
     },
@@ -50,6 +51,23 @@ _CAPABILITY_LABELS: dict[str, str] = {
     "sandbox": "沙箱环境",
     "notification": "通知推送",
     "requirement": "需求管理",
+}
+
+# Canonical labels for all provider names
+_PROVIDER_LABELS: dict[str, str] = {
+    "claude_code": "Claude Code",
+    "ducc": "DUCC",
+    "github": "GitHub",
+    "icode": "iCode",
+    "local": "本地文档",
+    "jenkins": "Jenkins",
+    "github_actions": "GitHub Actions",
+    "docker": "Docker",
+    "inbox": "站内信",
+    "feishu": "飞书",
+    "infoflow": "如流",
+    "jira": "Jira",
+    "linear": "Linear",
 }
 
 
@@ -206,7 +224,11 @@ class CapabilityRegistry:
                     schema = getattr(cls, "CONFIG_SCHEMA", [])
                 except Exception:
                     pass
-                provider_list.append({"name": pname, "config_schema": schema})
+                provider_list.append({
+                    "name": pname,
+                    "label": _PROVIDER_LABELS.get(pname, pname),
+                    "config_schema": schema,
+                })
             # Current active provider for this category
             active_cap = self._capabilities.get(category)
             result.append({

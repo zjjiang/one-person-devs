@@ -19,7 +19,7 @@ export default function App() {
         <Route path="/projects/:id" element={<ProjectDetail />} />
         <Route path="/projects/:id/edit" element={<ProjectForm />} />
         <Route path="/projects/:id/stories/new" element={<StoryForm />} />
-        <Route path="/stories/:id" element={<StoryDetail />} />
+        <Route path="/projects/:pid/stories/:id" element={<StoryDetail />} />
       </Routes>
     </AppLayout>
   );

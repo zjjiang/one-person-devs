@@ -80,6 +80,14 @@ class WorkspaceStatus(str, enum.Enum):
     error = "error"
 
 
+class NotificationType(str, enum.Enum):
+    stage_completed = "stage_completed"
+    stage_failed = "stage_failed"
+    pr_created = "pr_created"
+    pr_merged = "pr_merged"
+    story_done = "story_done"
+
+
 # --- Models ---
 
 
@@ -289,3 +297,20 @@ class Clarification(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     story: Mapped[Story] = relationship(back_populates="clarifications")
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    story_id: Mapped[int | None] = mapped_column(ForeignKey("stories.id"), nullable=True)
+    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True)
+    type: Mapped[NotificationType] = mapped_column(Enum(NotificationType), nullable=False)
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    message: Mapped[str] = mapped_column(Text, default="")
+    link: Mapped[str] = mapped_column(String(500), default="")
+    read: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    story: Mapped[Story | None] = relationship()
+    project: Mapped[Project | None] = relationship()

@@ -34,6 +34,7 @@ class ServerConfig(BaseModel):
     host: str = "0.0.0.0"
     port: int = 8765
     reload: bool = False
+    site_url: str = ""
 
 
 class DatabaseConfig(BaseModel):

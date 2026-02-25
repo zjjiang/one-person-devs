@@ -10,6 +10,7 @@ from opd.api.capability_utils import (
     HIDDEN_CAPABILITIES, find_schema, mask_config, unmask_passwords,
 )
 from opd.api.deps import get_db, get_orch
+from opd.capabilities.registry import _PROVIDER_LABELS
 from opd.db.models import GlobalCapabilityConfig, ProjectCapabilityConfig
 from opd.engine.orchestrator import Orchestrator
 from opd.models.schemas import SaveCapabilityConfigRequest, TestCapabilityRequest
@@ -163,6 +164,7 @@ async def get_catalog(
             "capability": row.capability,
             "label": row.label or row.capability,
             "provider": row.provider,
+            "provider_label": _PROVIDER_LABELS.get(row.provider, row.provider),
             "config_schema": schema,
             "enabled": row.enabled,
         })

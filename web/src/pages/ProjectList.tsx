@@ -24,7 +24,9 @@ export default function ProjectList() {
   }, []);
 
   if (loading)
-    return <Spin size="large" style={{ display: "block", margin: "100px auto" }} />;
+    return (
+      <Spin size="large" style={{ display: "block", margin: "100px auto" }} />
+    );
 
   return (
     <Row gutter={[16, 16]}>
@@ -37,15 +39,32 @@ export default function ProjectList() {
               onClick={() => navigate(`/projects/${p.id}`)}
               style={{ height: "100%" }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  marginBottom: 12,
+                }}
+              >
                 <ProjectOutlined style={{ fontSize: 20, color: "#1677ff" }} />
-                <Typography.Text strong ellipsis style={{ flex: 1, fontSize: 15 }}>
+                <Typography.Text
+                  strong
+                  ellipsis
+                  style={{ flex: 1, fontSize: 15 }}
+                >
                   {p.name}
                 </Typography.Text>
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }}
+              >
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  {p.story_count} Stories
+                  {p.story_count} 个用户故事
                 </Typography.Text>
                 <Tag color={ws.color}>{ws.text}</Tag>
               </div>
@@ -67,7 +86,9 @@ export default function ProjectList() {
           }}
         >
           <div style={{ textAlign: "center", color: "#999" }}>
-            <PlusOutlined style={{ fontSize: 28, display: "block", marginBottom: 8 }} />
+            <PlusOutlined
+              style={{ fontSize: 28, display: "block", marginBottom: 8 }}
+            />
             <span>新建项目</span>
           </div>
         </Card>

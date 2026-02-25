@@ -6,6 +6,7 @@ export interface CatalogItem {
   capability: string;
   label: string;
   provider: string;
+  provider_label: string;
   config_schema: { name: string; label: string; type: string }[];
   enabled: boolean;
 }

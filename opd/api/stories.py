@@ -13,17 +13,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from opd.api.deps import get_db, get_orch
-from opd.api.stories_tasks import _start_ai_stage, _start_chat_ai
+from opd.api.stories_tasks import _get_site_url, _start_ai_stage, _start_chat_ai
 from opd.db.models import (
     AIMessage,
     AIMessageRole,
     Clarification,
+    NotificationType,
     Round,
     RoundStatus,
     Story,
     StoryStatus,
 )
+from opd.db.session import get_session_factory
 from opd.engine.hashing import should_skip_ai
+from opd.engine.notify import send_notification
 from opd.engine.orchestrator import Orchestrator
 from opd.engine.state_machine import ensure_status_value
 from opd.engine.workspace import read_doc, write_doc
@@ -194,6 +197,17 @@ async def confirm_stage(
             )
         else:
             _start_ai_stage(story.id, orch, project_id=story.project_id)
+
+    # Notify when story is marked done (verifying → done)
+    if next_status == "done":
+        story_link = f"{_get_site_url()}/projects/{story.project_id}/stories/{story_id}"
+        asyncio.create_task(send_notification(
+            get_session_factory(), NotificationType.story_done,
+            f"Story #{story_id}「{story.title}」已完成 ✅",
+            f"需求 #{story_id}「{story.title}」已通过验证，流程完结。",
+            story_link, orch.capabilities,
+            story_id=story_id, project_id=story.project_id,
+        ))
 
     return {"id": story.id, "status": next_status, "skipped_ai": skipped_ai}
 

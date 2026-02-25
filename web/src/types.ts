@@ -29,7 +29,9 @@ export interface StorySummary {
 
 export interface CapabilityConfig {
   capability: string;
+  capability_label: string;
   provider: string;
+  provider_label: string;
   enabled: boolean;
 }
 
@@ -112,7 +114,7 @@ export interface ConfigField {
   label: string;
   type: "text" | "password" | "select";
   required?: boolean;
-  options?: string[];
+  options?: (string | { label: string; value: string })[];
 }
 
 export interface CapabilityItem {

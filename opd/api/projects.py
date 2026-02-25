@@ -13,7 +13,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from opd.api.deps import get_db, get_orch
-from opd.db.models import Project, ProjectCapabilityConfig, WorkspaceStatus
+from opd.capabilities.registry import _CAPABILITY_LABELS, _PROVIDER_LABELS
+from opd.db.models import (
+    GlobalCapabilityConfig,
+    Project,
+    ProjectCapabilityConfig,
+    WorkspaceStatus,
+)
 from opd.db.session import get_session_factory
 from opd.engine.orchestrator import Orchestrator
 from opd.engine.workspace import (
@@ -182,6 +188,17 @@ async def get_project(project_id: int, db: AsyncSession = Depends(get_db),
     project = result.scalar_one_or_none()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+    # Only show capabilities that still exist in global config
+    gc_result = await db.execute(
+        select(GlobalCapabilityConfig).where(GlobalCapabilityConfig.enabled.is_(True))
+    )
+    global_keys = {
+        f"{g.capability}/{g.provider}" for g in gc_result.scalars().all()
+    }
+    valid_caps = [
+        c for c in project.capability_configs
+        if f"{c.capability}/{c.provider_override or ''}" in global_keys
+    ]
     return {
         "id": project.id,
         "name": project.name,
@@ -201,8 +218,14 @@ async def get_project(project_id: int, db: AsyncSession = Depends(get_db),
             for s in project.skills
         ],
         "capability_configs": [
-            {"capability": c.capability, "provider": c.provider_override or "", "enabled": c.enabled}
-            for c in project.capability_configs
+            {
+                "capability": c.capability,
+                "capability_label": _CAPABILITY_LABELS.get(c.capability, c.capability),
+                "provider": c.provider_override or "",
+                "provider_label": _PROVIDER_LABELS.get(c.provider_override or "", c.provider_override or ""),
+                "enabled": c.enabled,
+            }
+            for c in valid_caps
         ],
         "stories": [
             {"id": s.id, "title": s.title, "status": s.status.value}

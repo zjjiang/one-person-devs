@@ -257,10 +257,10 @@ export default function ProjectForm() {
       ),
     },
     {
-      title: "Provider",
+      title: "服务提供方",
       key: "provider",
       width: 140,
-      render: (_: unknown, r: CatalogItem) => <Tag>{r.provider}</Tag>,
+      render: (_: unknown, r: CatalogItem) => <Tag>{r.provider_label}</Tag>,
     },
     {
       title: "操作",
@@ -475,7 +475,7 @@ export default function ProjectForm() {
                         >
                           {c.capability}
                         </Typography.Text>
-                        <Tag>{c.provider}</Tag>
+                        <Tag>{c.provider_label}</Tag>
                       </Space>
                     </Button>
                   ))}

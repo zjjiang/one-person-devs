@@ -10,9 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from opd.api.deps import get_db, get_orch
-from opd.api.stories_tasks import _build_project_registry, _start_ai_stage
+from opd.api.stories_tasks import _build_project_registry, _get_site_url, _start_ai_stage
 from opd.db.models import (
     AIMessage,
+    NotificationType,
     PRStatus,
     PullRequest,
     Round,
@@ -21,10 +22,13 @@ from opd.db.models import (
     Story,
     StoryStatus,
 )
+from opd.db.session import get_session_factory
+from opd.engine.notify import send_notification
 from opd.engine.orchestrator import Orchestrator
 from opd.engine.workspace import delete_doc, discard_branch, pull_main
+from opd.engine.workspace import get_latest_merge_diff, commit_and_push_file, resolve_work_dir
 
-from opd.api.projects import launch_incremental_claude_md_update
+from opd.api.projects import _ai_incremental_update_claude_md
 from opd.models.schemas import IterateRequest, RollbackRequest
 
 logger = logging.getLogger(__name__)
@@ -284,11 +288,51 @@ async def merge_story_pr(
     try:
         async with orch.get_workspace_lock(story.project_id):
             await pull_main(story.project)
+
+            # Incrementally update CLAUDE.md (synchronous, within lock)
+            try:
+                diff_summary = await get_latest_merge_diff(story.project)
+                if diff_summary:
+                    work_dir = resolve_work_dir(story.project)
+                    claude_md_path = work_dir / "CLAUDE.md"
+                    if claude_md_path.is_file():
+                        existing = claude_md_path.read_text(encoding="utf-8")
+                        ai_cap = registry.get("ai")
+                        if ai_cap:
+                            updated = await _ai_incremental_update_claude_md(
+                                ai_cap, diff_summary, existing,
+                            )
+                            if updated and updated != existing:
+                                await commit_and_push_file(
+                                    story.project, "CLAUDE.md",
+                                    "chore: incremental update CLAUDE.md after merge",
+                                    content=updated,
+                                )
+                                logger.info(
+                                    "Incremental CLAUDE.md update for project %s",
+                                    story.project_id,
+                                )
+            except Exception:
+                logger.warning(
+                    "Incremental CLAUDE.md update failed for project %s",
+                    story.project_id, exc_info=True,
+                )
     except Exception:
         logger.warning("pull_main failed after merge for story %s", story_id, exc_info=True)
 
-    # Incrementally update CLAUDE.md based on merged changes
-    launch_incremental_claude_md_update(story.project_id, orch)
-
     await db.flush()
+
+    # Notify merge success
+    story_link = f"{_get_site_url()}/projects/{story.project_id}/stories/{story_id}"
+    try:
+        await send_notification(
+            get_session_factory(), NotificationType.pr_merged,
+            f"Story #{story_id}「{story.title}」PR 已合并",
+            f"需求 #{story_id}「{story.title}」的 PR #{open_pr.pr_number} 已成功合并到主分支。",
+            story_link, orch.capabilities,
+            story_id=story_id, project_id=story.project_id,
+        )
+    except Exception:
+        logger.warning("Notification failed for merge story %s", story_id, exc_info=True)
+
     return {"id": story.id, "pr_number": open_pr.pr_number, "status": "merged"}

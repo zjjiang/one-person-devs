@@ -131,6 +131,7 @@ def create_app(config_path: str = "opd.yaml") -> FastAPI:
     from opd.api.stories_docs import docs_router
     from opd.api.users import router as users_router
     from opd.api.logs import router as logs_router
+    from opd.api.notifications import router as notifications_router
     from opd.api.webhooks import router as webhooks_router
 
     app.include_router(catalog_router)
@@ -141,6 +142,7 @@ def create_app(config_path: str = "opd.yaml") -> FastAPI:
     app.include_router(actions_router)
     app.include_router(docs_router)
     app.include_router(logs_router)
+    app.include_router(notifications_router)
     app.include_router(users_router, prefix="/api/users", tags=["users"])
     app.include_router(webhooks_router)
 

@@ -11,10 +11,12 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import selectinload
 
 from opd.capabilities.registry import build_capability_overrides
+from opd.config import load_config
 from opd.db.models import (
     AIMessage,
     AIMessageRole,
     Clarification,
+    NotificationType,
     Project,
     ProjectCapabilityConfig,
     PullRequest,
@@ -31,6 +33,7 @@ from opd.engine.context import (
     parse_refine_response,
 )
 from opd.engine.hashing import STAGE_INPUT_MAP, compute_stage_input_hash
+from opd.engine.notify import send_notification
 from opd.engine.orchestrator import Orchestrator
 from opd.engine.stages.base import StageContext
 from opd.engine.state_machine import ensure_status_value
@@ -43,6 +46,24 @@ from opd.engine.workspace import (
 )
 
 logger = logging.getLogger(__name__)
+
+_site_url: str | None = None
+
+
+def _get_site_url() -> str:
+    global _site_url
+    if _site_url is None:
+        _site_url = load_config().server.site_url.rstrip("/")
+    return _site_url
+
+_STAGE_LABELS: dict[str, str] = {
+    "preparing": "需求分析",
+    "clarifying": "需求澄清",
+    "planning": "技术方案",
+    "designing": "详细设计",
+    "coding": "编码",
+    "verifying": "人工验证",
+}
 
 
 async def _post_coding_create_pr(
@@ -83,8 +104,10 @@ async def _post_coding_create_pr(
             pr_url=pr_info["pr_url"],
         ))
         logger.info("Created PR #%s for story %s", pr_info["pr_number"], story.id)
+        return pr_info
     except Exception:
         logger.warning("create_pull_request failed for story %s", story.id, exc_info=True)
+        return None
 
 
 def _save_clarifications(db, story: Story, raw_text: str) -> None:
@@ -209,6 +232,7 @@ def _start_ai_stage(story_id: int, orch: Orchestrator,
                             )
 
                     done_event: dict | None = None
+                    pr_created = False
                     try:
                         stage_result = await stage.execute(ctx)
                         if stage_result.success:
@@ -235,9 +259,10 @@ def _start_ai_stage(story_id: int, orch: Orchestrator,
                                 setattr(story, hash_field, input_hash)
                             # Auto-create PR after coding completes
                             if status == "coding":
-                                await _post_coding_create_pr(
+                                pr_info = await _post_coding_create_pr(
                                     db, story, active_round, registry,
                                 )
+                                pr_created = pr_info is not None
                             done_event = {"type": "done"}
                         else:
                             error_msg = "; ".join(stage_result.errors)
@@ -251,6 +276,34 @@ def _start_ai_stage(story_id: int, orch: Orchestrator,
             # Transaction committed — publish done/error so frontend reads fresh data
             if done_event:
                 await orch.publish(round_id, done_event)
+            # Send notifications after commit
+            stage_label = _STAGE_LABELS.get(status, status)
+            story_link = f"{_get_site_url()}/projects/{project_id}/stories/{story_id}"
+            if done_event and done_event.get("type") == "done":
+                await send_notification(
+                    session_factory, NotificationType.stage_completed,
+                    f"Story #{story_id}「{story.title}」{stage_label}完成",
+                    f"需求 #{story_id}「{story.title}」的{stage_label}阶段已完成，可以继续下一步。",
+                    story_link, orch.capabilities,
+                    story_id=story_id, project_id=project_id,
+                )
+                if pr_created:
+                    await send_notification(
+                        session_factory, NotificationType.pr_created,
+                        f"Story #{story_id}「{story.title}」PR 已创建",
+                        f"需求 #{story_id}「{story.title}」的合并请求已自动创建，请前往审查。",
+                        story_link, orch.capabilities,
+                        story_id=story_id, project_id=project_id,
+                    )
+            elif done_event and done_event.get("type") == "error":
+                error_content = done_event.get("content", "未知错误")
+                await send_notification(
+                    session_factory, NotificationType.stage_failed,
+                    f"Story #{story_id}「{story.title}」{stage_label}失败",
+                    f"需求 #{story_id}「{story.title}」的{stage_label}阶段执行失败：{error_content}",
+                    story_link, orch.capabilities,
+                    story_id=story_id, project_id=project_id,
+                )
         except Exception:
             logger.exception("Background task crashed for story %s", story_id)
 
