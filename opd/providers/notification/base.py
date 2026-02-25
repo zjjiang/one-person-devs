@@ -17,3 +17,10 @@ class NotificationProvider(Provider):
     @abstractmethod
     async def send(self, title: str, content: str, link: str = "") -> bool:
         """Send a notification. Returns True on success."""
+
+    async def send_file(
+        self, title: str, content: str, link: str,
+        file_content: bytes, file_name: str,
+    ) -> bool:
+        """Send a notification with an attached file. Default: send text only."""
+        return await self.send(title, content, link)

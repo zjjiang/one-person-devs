@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 _TOKEN_URL = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
 _SEND_URL = "https://open.feishu.cn/open-apis/im/v1/messages"
+_FILE_URL = "https://open.feishu.cn/open-apis/im/v1/files"
 
 
 class FeishuProvider(NotificationProvider):
@@ -105,6 +106,53 @@ class FeishuProvider(NotificationProvider):
 
         if data.get("code") != 0:
             logger.error("飞书消息发送失败: %s", data.get("msg", "unknown"))
+            return False
+        return True
+
+    async def _upload_file(self, file_content: bytes, file_name: str) -> str | None:
+        """Upload a file to Feishu and return the file_key."""
+        token = await self._get_tenant_token()
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                _FILE_URL,
+                headers={"Authorization": f"Bearer {token}"},
+                data={"file_type": "stream", "file_name": file_name},
+                files={"file": (file_name, file_content)},
+            )
+            data = resp.json()
+        if data.get("code") != 0:
+            logger.error("飞书文件上传失败: %s", data.get("msg", "unknown"))
+            return None
+        return data.get("data", {}).get("file_key")
+
+    async def send_file(
+        self, title: str, content: str, link: str,
+        file_content: bytes, file_name: str,
+    ) -> bool:
+        """Send a card notification followed by the document file."""
+        # 1. Send the card notification as usual
+        await self.send(title, content, link)
+        # 2. Upload and send the file
+        file_key = await self._upload_file(file_content, file_name)
+        if not file_key:
+            return False
+        token = await self._get_tenant_token()
+        receive_id = self.config.get("receive_id", "")
+        receive_id_type = self.config.get("receive_id_type", "chat_id")
+        payload = {
+            "receive_id": receive_id,
+            "msg_type": "file",
+            "content": json.dumps({"file_key": file_key}),
+        }
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                f"{_SEND_URL}?receive_id_type={receive_id_type}",
+                json=payload,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            data = resp.json()
+        if data.get("code") != 0:
+            logger.error("飞书文件消息发送失败: %s", data.get("msg", "unknown"))
             return False
         return True
 

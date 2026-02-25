@@ -28,6 +28,8 @@ async def send_notification(
     *,
     story_id: int | None = None,
     project_id: int | None = None,
+    doc_content: str | None = None,
+    doc_filename: str | None = None,
 ) -> None:
     """Send a notification to all enabled notification providers.
 
@@ -88,7 +90,13 @@ async def send_notification(
                             continue
                         await prov.initialize()
                         try:
-                            await prov.send(title, message, link)
+                            if doc_content and doc_filename:
+                                await prov.send_file(
+                                    title, message, link,
+                                    doc_content.encode("utf-8"), doc_filename,
+                                )
+                            else:
+                                await prov.send(title, message, link)
                         finally:
                             await prov.cleanup()
                     except Exception:

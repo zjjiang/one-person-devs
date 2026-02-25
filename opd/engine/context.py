@@ -66,6 +66,20 @@ def _tasks_block(story: Story) -> str:
     return "## Task 列表\n" + "\n".join(lines)
 
 
+# Patterns that indicate a corrupted CLAUDE.md (AI conversation history instead of docs)
+_CORRUPTED_PATTERNS = (
+    "I'll analyze",
+    "Let me read",
+    "Let me first",
+    "Let me check",
+    "Now let me",
+    "完成！我已经",
+    "我已经成功生成",
+    "现在我看到",
+    "根据用户的要求",
+)
+
+
 def _read_claude_md(project: Project) -> str:
     """Read CLAUDE.md from the project workspace root, if it exists."""
     try:
@@ -73,8 +87,26 @@ def _read_claude_md(project: Project) -> str:
         claude_md = work_dir / "CLAUDE.md"
         if claude_md.is_file():
             content = claude_md.read_text(encoding="utf-8").strip()
-            if content:
-                return f"## 项目上下文 (CLAUDE.md)\n{content}"
+            if not content:
+                return ""
+            # Validate: first non-empty line should be a markdown header
+            first_line = content.lstrip().split("\n", 1)[0].strip()
+            if not first_line.startswith("#"):
+                logger.warning(
+                    "CLAUDE.md for project %s does not start with a markdown header, skipping",
+                    project.id,
+                )
+                return ""
+            # Check for AI conversation artifacts
+            head = content[:500]
+            for pattern in _CORRUPTED_PATTERNS:
+                if pattern in head:
+                    logger.warning(
+                        "CLAUDE.md for project %s appears corrupted (found '%s'), skipping",
+                        project.id, pattern,
+                    )
+                    return ""
+            return f"## 项目上下文 (CLAUDE.md)\n{content}"
     except Exception:
         logger.debug("Failed to read CLAUDE.md for project %s", project.id, exc_info=True)
     return ""

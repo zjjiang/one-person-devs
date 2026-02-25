@@ -207,6 +207,44 @@ def _start_ai_stage(story_id: int, orch: Orchestrator,
                         capabilities=registry, publish=publish,
                     )
 
+                    # Acquire workspace lock when entering coding stage
+                    if status == "coding":
+                        from opd.engine.workspace_lock import (
+                            acquire_workspace_lock,
+                            WorkspaceLockError,
+                        )
+
+                        try:
+                            await acquire_workspace_lock(db, story.project_id, story_id)
+                            logger.info(
+                                "Acquired workspace lock for story %s on project %s",
+                                story_id, story.project_id,
+                            )
+                        except WorkspaceLockError as e:
+                            # Lock conflict: query the locking story info
+                            locked_story_id = e.locked_by_story_id
+                            if locked_story_id:
+                                stmt = select(Story).where(Story.id == locked_story_id)
+                                result = await db.execute(stmt)
+                                locked_story = result.scalar_one_or_none()
+
+                                error_msg = (
+                                    f"工作区被占用：Story #{locked_story_id} "
+                                    f"'{locked_story.title if locked_story else 'Unknown'}' "
+                                    f"正在使用该项目的工作区。请等待其完成或停止后再试。"
+                                )
+                            else:
+                                error_msg = "工作区被占用，请稍后再试。"
+
+                            logger.warning(
+                                "Workspace lock conflict for story %s: %s",
+                                story_id, error_msg,
+                            )
+                            # Publish error and exit
+                            await orch.publish(round_id, {"type": "error", "content": error_msg})
+                            orch.unregister_task(str(story_id))
+                            return
+
                     # Create coding branch if entering coding stage without one
                     if status == "coding" and not active_round.branch_name:
                         branch = generate_branch_name(
@@ -233,6 +271,7 @@ def _start_ai_stage(story_id: int, orch: Orchestrator,
 
                     done_event: dict | None = None
                     pr_created = False
+                    generated_docs: list[tuple[str, str]] = []  # (filename, content)
                     try:
                         stage_result = await stage.execute(ctx)
                         if stage_result.success:
@@ -243,6 +282,7 @@ def _start_ai_stage(story_id: int, orch: Orchestrator,
                                         story.project, story, filename, content,
                                     )
                                     setattr(story, fld, rel_path)
+                                    generated_docs.append((filename, content))
                             if "questions" in stage_result.output:
                                 _save_clarifications(
                                     db, story, stage_result.output["questions"],
@@ -263,14 +303,54 @@ def _start_ai_stage(story_id: int, orch: Orchestrator,
                                     db, story, active_round, registry,
                                 )
                                 pr_created = pr_info is not None
+                                # Release workspace lock after coding completes
+                                from opd.engine.workspace_lock import release_workspace_lock
+
+                                try:
+                                    await release_workspace_lock(
+                                        db, story.project_id, story_id,
+                                    )
+                                    logger.info(
+                                        "Released workspace lock for story %s",
+                                        story_id,
+                                    )
+                                except Exception:
+                                    logger.warning(
+                                        "Failed to release workspace lock for story %s",
+                                        story_id, exc_info=True,
+                                    )
                             done_event = {"type": "done"}
                         else:
                             error_msg = "; ".join(stage_result.errors)
                             logger.error("Stage [%s] failed: %s", status, error_msg)
                             done_event = {"type": "error", "content": error_msg}
+                            # Release lock on error if in coding stage
+                            if status == "coding":
+                                from opd.engine.workspace_lock import release_workspace_lock
+
+                                try:
+                                    await release_workspace_lock(
+                                        db, story.project_id, story_id,
+                                    )
+                                except Exception:
+                                    logger.warning(
+                                        "Failed to release lock on error for story %s",
+                                        story_id, exc_info=True,
+                                    )
                     except Exception as e:
                         logger.exception("AI stage exception for story %s", story_id)
                         done_event = {"type": "error", "content": str(e)}
+                        # Release lock on exception if in coding stage
+                        if status == "coding":
+                            from opd.engine.workspace_lock import release_workspace_lock
+
+                            try:
+                                await release_workspace_lock(db, story.project_id, story_id)
+                            except Exception:
+                                logger.warning(
+                                    "Failed to release lock on exception for story %s",
+                                    story_id, exc_info=True,
+                                )
                     finally:
                         orch.unregister_task(str(story_id))
             # Transaction committed — publish done/error so frontend reads fresh data
@@ -280,12 +360,18 @@ def _start_ai_stage(story_id: int, orch: Orchestrator,
             stage_label = _STAGE_LABELS.get(status, status)
             story_link = f"{_get_site_url()}/projects/{project_id}/stories/{story_id}"
             if done_event and done_event.get("type") == "done":
+                # Pick the primary generated doc for file attachment
+                doc_content = None
+                doc_filename = None
+                if generated_docs:
+                    doc_filename, doc_content = generated_docs[0]
                 await send_notification(
                     session_factory, NotificationType.stage_completed,
                     f"Story #{story_id}「{story.title}」{stage_label}完成",
                     f"需求 #{story_id}「{story.title}」的{stage_label}阶段已完成，可以继续下一步。",
                     story_link, orch.capabilities,
                     story_id=story_id, project_id=project_id,
+                    doc_content=doc_content, doc_filename=doc_filename,
                 )
                 if pr_created:
                     await send_notification(

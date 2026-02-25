@@ -221,3 +221,76 @@ class TestSendNotification:
         )
 
         mock_prov.send.assert_called_once_with("Test", "msg", "/link")
+
+    async def test_send_file_called_when_doc_provided(self, notification_db):
+        """send_notification calls send_file() when doc_content is provided."""
+        from opd.engine.notify import send_notification
+        from opd.db.models import GlobalCapabilityConfig
+
+        async with notification_db() as db:
+            async with db.begin():
+                db.add(ProjectCapabilityConfig(
+                    project_id=1, capability="notification", enabled=True,
+                ))
+                db.add(GlobalCapabilityConfig(
+                    capability="notification", provider="feishu",
+                    enabled=True, config={"app_id": "x", "app_secret": "y",
+                                          "receive_id": "z"},
+                ))
+
+        mock_prov = AsyncMock()
+        mock_prov.send_file = AsyncMock(return_value=True)
+        mock_prov.initialize = AsyncMock()
+        mock_prov.cleanup = AsyncMock()
+
+        mock_registry = MagicMock()
+        mock_registry.create_temp_provider = MagicMock(return_value=mock_prov)
+
+        await send_notification(
+            notification_db,
+            NotificationType.stage_completed,
+            "Test", "msg", "/link",
+            mock_registry,
+            story_id=1, project_id=1,
+            doc_content="# PRD\nHello world", doc_filename="prd.md",
+        )
+
+        mock_prov.send_file.assert_called_once_with(
+            "Test", "msg", "/link",
+            b"# PRD\nHello world", "prd.md",
+        )
+        mock_prov.send.assert_not_called()
+
+    async def test_send_file_fallback_without_doc(self, notification_db):
+        """send_notification calls send() when no doc_content is provided."""
+        from opd.engine.notify import send_notification
+        from opd.db.models import GlobalCapabilityConfig
+
+        async with notification_db() as db:
+            async with db.begin():
+                db.add(ProjectCapabilityConfig(
+                    project_id=1, capability="notification", enabled=True,
+                ))
+                db.add(GlobalCapabilityConfig(
+                    capability="notification", provider="feishu",
+                    enabled=True, config={"app_id": "x", "app_secret": "y",
+                                          "receive_id": "z"},
+                ))
+
+        mock_prov = AsyncMock()
+        mock_prov.send = AsyncMock(return_value=True)
+        mock_prov.initialize = AsyncMock()
+        mock_prov.cleanup = AsyncMock()
+
+        mock_registry = MagicMock()
+        mock_registry.create_temp_provider = MagicMock(return_value=mock_prov)
+
+        await send_notification(
+            notification_db,
+            NotificationType.stage_completed,
+            "Test", "msg", "/link",
+            mock_registry,
+            story_id=1, project_id=1,
+        )
+
+        mock_prov.send.assert_called_once_with("Test", "msg", "/link")
