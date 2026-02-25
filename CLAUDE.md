@@ -52,6 +52,8 @@ HTTP 请求 → FastAPI 路由 (`opd/api/`) → `Orchestrator`（通过 `opd/api
 - **`context.py`** — 构建 AI 提示词（系统提示、编码提示、规划提示、修订提示）。
 - **`workspace/`** — 包含 3 个模块的包：`paths.py`（目录解析、文档 I/O）、`scanner.py`（源代码扫描）、`git.py`（克隆、分支管理、pull_main、discard_branch）。通过 `__init__.py` 重新导出所有公共函数，包括用于分支命名的 `story_slug()`。
 - **`hashing.py`** — SHA-256 输入变更检测。计算阶段输入的哈希值以跳过未变更的 AI 阶段，避免冗余 API 调用。
+- **`notify.py`** — 通知服务。`send_notification()` 函数负责 fan-out：写入 DB（站内信）+ 调用外部 providers（飞书等）。支持 `doc_content`/`doc_filename` 参数，有文档时通过飞书文件上传 API 发送附件。
+- **`workspace_lock.py`** — 工作区互斥锁。确保同一项目同时只有一个 Story 在 coding 阶段。`acquire_workspace_lock()`/`release_workspace_lock()`/`check_workspace_lock()` 操作 Project 表的 `locked_by_story_id` 字段。
 
 ### Capability 系统 (`opd/capabilities/` + `opd/providers/`)
 
@@ -59,7 +61,7 @@ HTTP 请求 → FastAPI 路由 (`opd/api/`) → `Orchestrator`（通过 `opd/api
 
 **架构**: `opd/capabilities/` 包含注册表和基类，`opd/providers/` 包含实际 provider 实现（ai/、scm/、doc/）。
 
-当前 providers: `ai/claude_code`、`ai/ducc`、`scm/github`、`doc/local`。
+当前 providers: `ai/claude_code`、`ai/ducc`、`scm/github`、`doc/local`、`notification/inbox`、`notification/feishu`。
 
 ### 依赖注入
 
@@ -85,6 +87,8 @@ HTTP 请求 → FastAPI 路由 (`opd/api/`) → `Orchestrator`（通过 `opd/api
 - **`capabilities.py`** — Capability 健康检查和配置。
 - **`capability_utils.py`** — 跨 capability 端点的配置掩码/解掩码共享辅助函数。
 - **`settings.py`** — 全局 capability 配置。
+- **`notifications.py`** — 通知 API：`GET /api/notifications`（列表）、`GET /api/notifications/unread-count`（未读数）、`POST /api/notifications/{id}/read`（标记已读）、`POST /api/notifications/read-all`（全部已读）。
+- **`logs.py`** — 全局日志查看：`GET /api/logs/stream`（SSE 实时日志流）、`GET /api/logs/files`（日志文件列表）。
 - **`users.py`** — 用户注册。
 - **`webhooks.py`** — GitHub webhook 处理器。
 
@@ -136,6 +140,8 @@ opd/
 │   ├── projects.py         # 项目管理 + 同步端点
 │   ├── capabilities.py     # Capability 健康检查
 │   ├── settings.py         # 全局配置
+│   ├── notifications.py    # 通知 API（站内信）
+│   ├── logs.py             # 全局日志查看
 │   ├── users.py            # 用户注册
 │   └── webhooks.py         # GitHub webhook 处理器
 ├── engine/                 # 核心编排引擎
@@ -143,6 +149,8 @@ opd/
 │   ├── state_machine.py    # 状态转换逻辑
 │   ├── context.py          # AI 提示词构建器
 │   ├── hashing.py          # 输入变更检测
+│   ├── notify.py           # 通知服务（fan-out）
+│   ├── workspace_lock.py   # 工作区互斥锁
 │   ├── stages/             # 阶段实现
 │   └── workspace/          # Git/文件操作
 ├── capabilities/           # Capability 系统
@@ -152,7 +160,8 @@ opd/
 ├── providers/              # Provider 实现
 │   ├── ai/                 # AI providers（claude_code、ducc）
 │   ├── scm/                # SCM providers（github）
-│   └── doc/                # Doc providers（local）
+│   ├── doc/                # Doc providers（local）
+│   └── notification/       # 通知 providers（inbox、feishu）
 ├── db/                     # 数据库层
 │   ├── models.py           # SQLAlchemy 模型
 │   └── session.py          # DB 会话管理
@@ -197,6 +206,7 @@ docs/                       # Story 文档归档
 - **Clarification** — 澄清阶段的问答对
 - **Rule** — 项目特定编码规则（编码、架构、测试、git、禁止）
 - **Skill** — 自定义命令，带触发器（auto_after_coding、auto_before_pr、manual）
+- **Notification** — 通知记录（站内信），包含 type、title、message、link、read 状态
 
 ### Story 生命周期状态
 
@@ -355,3 +365,9 @@ Capabilities 在首次使用时懒加载。使用前在 `_BUILTIN_PROVIDERS` 中
 
 ### Capability vs Provider 混淆
 `opd/capabilities/` 包含注册表系统，`opd/providers/` 包含实现。添加新 capabilities 时不要混淆两者。
+
+### 工作区互斥锁
+同一项目同时只能有一个 Story 在 coding 阶段。`workspace_lock.py` 通过 Project 表的 `locked_by_story_id` 字段实现。coding 阶段自动获取锁，完成/失败/停止时自动释放。Preflight 检查会提示锁冲突。
+
+### CLAUDE.md 污染防护
+`context.py` 中的 `_read_claude_md()` 会校验工作区 CLAUDE.md 内容：必须以 markdown 标题开头，且不包含 AI 对话痕迹（如 "I'll analyze"、"完成！我已经" 等）。检测到异常内容时自动跳过注入，防止污染 AI prompt。

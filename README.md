@@ -55,6 +55,8 @@ opd/
 │   ├── stories.py         # Story 生命周期 + SSE 流式
 │   ├── capabilities.py    # 能力健康检查 + 配置
 │   ├── settings.py        # 全局能力配置
+│   ├── notifications.py   # 通知 API (站内信)
+│   ├── logs.py            # 全局日志查看
 │   ├── users.py           # 用户注册
 │   └── webhooks.py        # GitHub webhook
 ├── db/                    # 数据库
@@ -66,6 +68,8 @@ opd/
 │   ├── context.py         # AI prompt 构建
 │   ├── workspace.py       # Git 工作区操作 (分支管理、文档读写)
 │   ├── hashing.py         # 输入变更检测 (SHA-256)
+│   ├── notify.py          # 通知服务 (站内信 + 外部 provider fan-out)
+│   ├── workspace_lock.py  # 工作区互斥锁 (单项目单 coding)
 │   └── stages/            # 6 个阶段实现
 │       ├── base.py        # Stage 基类 (validate/execute/validate_output)
 │       ├── preparing.py   # 需求 → PRD
@@ -83,7 +87,7 @@ opd/
 │   ├── ci/                # CI (GitHub Actions)
 │   ├── doc/               # 文档 (Local, Notion)
 │   ├── sandbox/           # 沙盒 (Docker)
-│   └── notification/      # 通知 (Web)
+│   └── notification/      # 通知 (Inbox 站内信, Feishu 飞书)
 └── models/schemas.py      # Pydantic 请求/响应模型
 
 web/                       # React 前端 (独立 SPA)
@@ -168,6 +172,22 @@ cd web && npm run dev       # Vite 开发服务器
 8. **Verifying** — Code Review + 验证，通过则完成；不通过可 iterate（回到 Coding）或 restart（回到 Designing）
 
 任意阶段均可回退（rollback）到前置阶段重新执行。
+
+## 通知系统
+
+支持站内信（Inbox）和飞书（Feishu）两种通知渠道：
+
+- **阶段完成/失败** — 自动通知，飞书附带生成的文档文件（PRD、技术方案等）
+- **PR 创建/合并** — 自动通知
+- **Story 完成** — 自动通知
+
+在全局设置中配置飞书应用（App ID、App Secret、接收者 ID），项目级开启通知 capability 即可。
+
+## 多 Story 并行
+
+- 同一项目同时只能有一个 Story 在 `coding` 阶段（workspace 互斥锁）
+- 不同项目可以各自并行一个 coding Story
+- Preflight 检查会提示锁冲突，Stop 操作自动释放锁
 
 ## 扩展 Provider
 
