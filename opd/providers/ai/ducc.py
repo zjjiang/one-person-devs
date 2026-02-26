@@ -97,31 +97,36 @@ class DuccProvider(AIProvider):
             yield {"type": "error", "content": str(e)}
 
     async def prepare_prd(self, system_prompt: str,
-                          user_prompt: str) -> AsyncIterator[dict]:
-        async for msg in self._invoke_stream(user_prompt, system_prompt):
+                          user_prompt: str,
+                          work_dir: str = "") -> AsyncIterator[dict]:
+        async for msg in self._invoke_stream(user_prompt, system_prompt, work_dir or None):
             yield msg
 
     async def clarify(self, system_prompt: str,
-                      user_prompt: str) -> AsyncIterator[dict]:
-        async for msg in self._invoke_stream(user_prompt, system_prompt):
+                      user_prompt: str,
+                      work_dir: str = "") -> AsyncIterator[dict]:
+        async for msg in self._invoke_stream(user_prompt, system_prompt, work_dir or None):
             yield msg
 
     async def plan(self, system_prompt: str,
-                   user_prompt: str) -> AsyncIterator[dict]:
-        async for msg in self._invoke_stream(user_prompt, system_prompt):
+                   user_prompt: str,
+                   work_dir: str = "") -> AsyncIterator[dict]:
+        async for msg in self._invoke_stream(user_prompt, system_prompt, work_dir or None):
             yield msg
 
     async def design(self, system_prompt: str,
-                     user_prompt: str) -> AsyncIterator[dict]:
-        async for msg in self._invoke_stream(user_prompt, system_prompt):
+                     user_prompt: str,
+                     work_dir: str = "") -> AsyncIterator[dict]:
+        async for msg in self._invoke_stream(user_prompt, system_prompt, work_dir or None):
             yield msg
 
     async def code(self, system_prompt: str, user_prompt: str,
-                   work_dir: str) -> AsyncIterator[dict]:
-        async for msg in self._invoke_stream(user_prompt, system_prompt, work_dir):
+                   work_dir: str = "") -> AsyncIterator[dict]:
+        async for msg in self._invoke_stream(user_prompt, system_prompt, work_dir or None):
             yield msg
 
     async def refine_prd(self, system_prompt: str,
-                         user_prompt: str) -> AsyncIterator[dict]:
-        async for msg in self._invoke_stream(user_prompt, system_prompt):
+                         user_prompt: str,
+                         work_dir: str = "") -> AsyncIterator[dict]:
+        async for msg in self._invoke_stream(user_prompt, system_prompt, work_dir or None):
             yield msg

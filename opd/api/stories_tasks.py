@@ -482,8 +482,11 @@ def _start_chat_ai(story_id: int, user_message: str, orch: Orchestrator,
 
                     collected: list[str] = []
                     post_commit_events: list[dict] = []
+                    work_dir = str(resolve_work_dir(story.project))
                     try:
-                        async for msg in ai.provider.refine_prd(system_prompt, user_prompt):
+                        async for msg in ai.provider.refine_prd(
+                            system_prompt, user_prompt, work_dir,
+                        ):
                             if msg.get("type") == "assistant" and msg.get("content"):
                                 collected.append(msg["content"])
 

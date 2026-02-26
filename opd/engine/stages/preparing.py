@@ -6,6 +6,7 @@ import logging
 
 from opd.engine.context import build_preparing_prompt
 from opd.engine.stages.base import Stage, StageContext, StageResult
+from opd.engine.workspace import resolve_work_dir
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +28,10 @@ class PreparingStage(Stage):
             return StageResult(success=False, errors=["AI capability not available"])
 
         system_prompt, user_prompt = build_preparing_prompt(ctx.story, ctx.project)
+        work_dir = str(resolve_work_dir(ctx.project))
 
         collected: list[str] = []
-        async for msg in ai.provider.prepare_prd(system_prompt, user_prompt):
+        async for msg in ai.provider.prepare_prd(system_prompt, user_prompt, work_dir):
             if ctx.publish:
                 await ctx.publish(msg)
             if msg.get("type") == "assistant":

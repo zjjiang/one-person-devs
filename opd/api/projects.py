@@ -496,6 +496,7 @@ async def _ai_generate_claude_md(
     *, publish=None,
 ) -> str:
     """Call AI to generate a comprehensive CLAUDE.md."""
+
     system_prompt = (
         "你是一个资深工程师。根据项目的源码结构和关键文件内容，"
         "生成一份 CLAUDE.md 文件，供 AI 编码助手理解项目上下文。\n\n"
@@ -522,8 +523,9 @@ async def _ai_generate_claude_md(
 
     user_prompt = "\n\n".join(parts)
 
+    work_dir = str(resolve_work_dir(project))
     collected: list[str] = []
-    async for msg in ai_cap.provider.plan(system_prompt, user_prompt):
+    async for msg in ai_cap.provider.plan(system_prompt, user_prompt, work_dir):
         if msg.get("type") == "assistant" and msg.get("content"):
             collected.append(msg["content"])
             if publish:
@@ -586,7 +588,7 @@ def launch_incremental_claude_md_update(project_id: int, orch: Orchestrator) -> 
                         return
 
                     updated = await _ai_incremental_update_claude_md(
-                        ai_cap, diff_summary, existing,
+                        ai_cap, diff_summary, existing, str(work_dir),
                     )
                     if updated and updated != existing:
                         await commit_and_push_file(
@@ -605,7 +607,7 @@ def launch_incremental_claude_md_update(project_id: int, orch: Orchestrator) -> 
 
 
 async def _ai_incremental_update_claude_md(
-    ai_cap, diff_summary: str, existing: str,
+    ai_cap, diff_summary: str, existing: str, work_dir: str = "",
 ) -> str:
     """Call AI to incrementally update CLAUDE.md based on merge diff."""
     system_prompt = (
@@ -620,7 +622,7 @@ async def _ai_incremental_update_claude_md(
     user_prompt = f"## 现有 CLAUDE.md\n{existing}\n\n## 最近合并的变更\n{diff_summary}"
 
     collected: list[str] = []
-    async for msg in ai_cap.provider.plan(system_prompt, user_prompt):
+    async for msg in ai_cap.provider.plan(system_prompt, user_prompt, work_dir):
         if msg.get("type") == "assistant" and msg.get("content"):
             collected.append(msg["content"])
 

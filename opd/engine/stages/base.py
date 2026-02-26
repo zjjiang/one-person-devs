@@ -70,10 +70,11 @@ class Stage(ABC):
     @staticmethod
     async def _collect_with_continuation(
         ctx: StageContext,
-        ai_method: Callable[[str, str], AsyncIterator[dict]],
+        ai_method: Callable[..., AsyncIterator[dict]],
         system_prompt: str,
         user_prompt: str,
         label: str,
+        work_dir: str = "",
     ) -> str:
         """Collect AI output with automatic continuation for truncated responses.
 
@@ -83,6 +84,7 @@ class Stage(ABC):
             system_prompt: System prompt for the AI call.
             user_prompt: Initial user prompt.
             label: Human-readable label for log messages (e.g., "Technical design").
+            work_dir: Working directory for the AI provider.
         """
         from opd.engine.context import (
             build_continuation_prompt,
@@ -91,7 +93,7 @@ class Stage(ABC):
         )
 
         collected: list[str] = []
-        async for msg in ai_method(system_prompt, user_prompt):
+        async for msg in ai_method(system_prompt, user_prompt, work_dir):
             if ctx.publish:
                 await ctx.publish(msg)
             if msg.get("type") == "assistant":
@@ -108,7 +110,7 @@ class Stage(ABC):
             )
             cont_prompt = build_continuation_prompt(full_output)
             cont_collected: list[str] = []
-            async for msg in ai_method(system_prompt, cont_prompt):
+            async for msg in ai_method(system_prompt, cont_prompt, work_dir):
                 if ctx.publish:
                     await ctx.publish(msg)
                 if msg.get("type") == "assistant":

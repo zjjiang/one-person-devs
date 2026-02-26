@@ -325,7 +325,7 @@ async def merge_story_pr(
                         ai_cap = registry.get("ai")
                         if ai_cap:
                             updated = await _ai_incremental_update_claude_md(
-                                ai_cap, diff_summary, existing,
+                                ai_cap, diff_summary, existing, str(work_dir),
                             )
                             if updated and updated != existing:
                                 await commit_and_push_file(

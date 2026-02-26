@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from opd.engine.context import build_planning_prompt
 from opd.engine.stages.base import Stage, StageContext, StageResult
+from opd.engine.workspace import resolve_work_dir
 
 
 class PlanningStage(Stage):
@@ -23,9 +24,11 @@ class PlanningStage(Stage):
             return StageResult(success=False, errors=["AI capability not available"])
 
         system_prompt, user_prompt = build_planning_prompt(ctx.story, ctx.project)
+        work_dir = str(resolve_work_dir(ctx.project))
 
         technical_design = await self._collect_with_continuation(
             ctx, ai.provider.plan, system_prompt, user_prompt, "Technical design",
+            work_dir=work_dir,
         )
         if not technical_design.strip():
             return StageResult(success=False, errors=["AI returned empty technical design"])

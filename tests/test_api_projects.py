@@ -311,7 +311,7 @@ class TestIncrementalUpdateClaudeMd:
     async def test_returns_updated_content(self):
         from opd.api.projects import _ai_incremental_update_claude_md
 
-        async def fake_plan(system, user):
+        async def fake_plan(system, user, work_dir=""):
             yield {"type": "assistant", "content": "# Updated CLAUDE.md\nNew content"}
 
         ai_cap = MagicMock()
@@ -325,7 +325,7 @@ class TestIncrementalUpdateClaudeMd:
     async def test_returns_existing_on_empty_response(self):
         from opd.api.projects import _ai_incremental_update_claude_md
 
-        async def fake_plan(system, user):
+        async def fake_plan(system, user, work_dir=""):
             return
             yield  # noqa: make it an async generator
 

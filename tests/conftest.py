@@ -21,19 +21,19 @@ class MockAIProvider(Provider):
     async def health_check(self) -> HealthStatus:
         return HealthStatus(healthy=True, message="mock ok")
 
-    async def prepare_prd(self, system_prompt, user_prompt):
+    async def prepare_prd(self, system_prompt, user_prompt, work_dir=""):
         yield {"type": "assistant", "content": "Mock PRD content"}
 
-    async def clarify(self, system_prompt, user_prompt):
+    async def clarify(self, system_prompt, user_prompt, work_dir=""):
         yield {"type": "assistant", "content": "No questions"}
 
-    async def plan(self, system_prompt, user_prompt):
+    async def plan(self, system_prompt, user_prompt, work_dir=""):
         yield {"type": "assistant", "content": "Mock plan"}
 
-    async def design(self, system_prompt, user_prompt):
+    async def design(self, system_prompt, user_prompt, work_dir=""):
         yield {"type": "assistant", "content": "Mock design"}
 
-    async def code(self, system_prompt, user_prompt):
+    async def code(self, system_prompt, user_prompt, work_dir=""):
         yield {"type": "assistant", "content": "Mock code"}
 
 

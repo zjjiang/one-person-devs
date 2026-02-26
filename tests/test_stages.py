@@ -80,7 +80,7 @@ class TestPreparingStage:
 
     async def test_execute_empty_response(self):
         class EmptyAI(MockAIProvider):
-            async def prepare_prd(self, s, u):
+            async def prepare_prd(self, s, u, work_dir=""):
                 yield {"type": "assistant", "content": ""}
         registry = CapabilityRegistry()
         registry._capabilities["ai"] = Capability("ai", EmptyAI())
@@ -315,3 +315,93 @@ class TestBuildTestGuide:
     def test_without_branch(self):
         guide = _build_test_guide("Login", None, None, [])
         assert "未创建" in guide
+
+
+# ── work_dir propagation tests ──
+
+
+class _WorkDirCapturingAI(MockAIProvider):
+    """AI provider that records the work_dir passed to each method."""
+
+    def __init__(self):
+        super().__init__()
+        self.captured_work_dirs: dict[str, str] = {}
+
+    async def prepare_prd(self, system_prompt, user_prompt, work_dir=""):
+        self.captured_work_dirs["prepare_prd"] = work_dir
+        async for msg in super().prepare_prd(system_prompt, user_prompt, work_dir):
+            yield msg
+
+    async def clarify(self, system_prompt, user_prompt, work_dir=""):
+        self.captured_work_dirs["clarify"] = work_dir
+        async for msg in super().clarify(system_prompt, user_prompt, work_dir):
+            yield msg
+
+    async def plan(self, system_prompt, user_prompt, work_dir=""):
+        self.captured_work_dirs["plan"] = work_dir
+        async for msg in super().plan(system_prompt, user_prompt, work_dir):
+            yield msg
+
+    async def design(self, system_prompt, user_prompt, work_dir=""):
+        self.captured_work_dirs["design"] = work_dir
+        async for msg in super().design(system_prompt, user_prompt, work_dir):
+            yield msg
+
+
+class TestWorkDirPropagation:
+    """Verify that all non-coding stages pass work_dir to AI provider methods."""
+
+    def _make_capturing_ctx(self, story=None):
+        project = SimpleNamespace(
+            id=1, name="test", repo_url="https://github.com/t/r",
+            description="", tech_stack="Python", architecture="",
+            rules=[], workspace_dir="/tmp/test-ws",
+        )
+        ai = _WorkDirCapturingAI()
+        registry = CapabilityRegistry()
+        registry._capabilities["ai"] = Capability("ai", ai)
+        if story is None:
+            story = SimpleNamespace(
+                id=1, title="Test", raw_input="Build login",
+                status=StoryStatus.preparing, prd="Some PRD",
+                confirmed_prd="Confirmed PRD",
+                technical_design="Tech design", detailed_design=None,
+                feature_tag=None,
+                tasks=[SimpleNamespace(id=1, title="t", description="d", depends_on="", order=1)],
+                clarifications=[],
+            )
+        round_ = SimpleNamespace(
+            id=1, round_number=1, type=RoundType.initial,
+            status=RoundStatus.active, branch_name="", pull_requests=[],
+            close_reason=None,
+        )
+        ctx = StageContext(
+            story=story, project=project, round=round_,
+            capabilities=registry, publish=None,
+        )
+        return ctx, ai
+
+    @patch("opd.engine.stages.preparing.resolve_work_dir", return_value="/tmp/test-ws")
+    async def test_preparing_passes_work_dir(self, _mock):
+        ctx, ai = self._make_capturing_ctx()
+        await PreparingStage().execute(ctx)
+        assert ai.captured_work_dirs.get("prepare_prd") == "/tmp/test-ws"
+
+    @patch("opd.engine.stages.clarifying.resolve_work_dir", return_value="/tmp/test-ws")
+    @patch("opd.engine.stages.clarifying.scan_workspace", return_value="")
+    async def test_clarifying_passes_work_dir(self, _scan, _dir):
+        ctx, ai = self._make_capturing_ctx()
+        await ClarifyingStage().execute(ctx)
+        assert ai.captured_work_dirs.get("clarify") == "/tmp/test-ws"
+
+    @patch("opd.engine.stages.planning.resolve_work_dir", return_value="/tmp/test-ws")
+    async def test_planning_passes_work_dir(self, _mock):
+        ctx, ai = self._make_capturing_ctx()
+        await PlanningStage().execute(ctx)
+        assert ai.captured_work_dirs.get("plan") == "/tmp/test-ws"
+
+    @patch("opd.engine.stages.designing.resolve_work_dir", return_value="/tmp/test-ws")
+    async def test_designing_passes_work_dir(self, _mock):
+        ctx, ai = self._make_capturing_ctx()
+        await DesigningStage().execute(ctx)
+        assert ai.captured_work_dirs.get("design") == "/tmp/test-ws"
