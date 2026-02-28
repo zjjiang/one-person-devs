@@ -147,9 +147,18 @@ def build_clarifying_prompt(
 ) -> tuple[str, str]:
     """Return (system_prompt, user_prompt) for requirement clarification."""
     system = (
-        "你是一个资深研发工程师。分析以下 PRD，基于你对当前系统的理解，"
-        "提出需要澄清的问题。每个问题应该帮助明确需求的边界和实现细节。\n"
-        "以 JSON 数组格式输出问题列表：[{\"question\": \"...\"}]\n\n"
+        "你是一个资深研发工程师。分析以下 PRD，提出需要澄清的问题。\n\n"
+        "要求：\n"
+        "1. 最多提出 3-5 个最关键的问题\n"
+        "2. 只问会影响架构决策、数据模型或核心功能的问题\n"
+        "3. 每个问题控制在 50 字以内，直接提问，不要过多背景描述\n"
+        "4. 优先使用二选一的问题（A 还是 B？），而非开放式问题\n"
+        "5. 避免使用'是否需要'的表达，直接问'需要 X 吗？'\n\n"
+        "示例风格：\n"
+        "- 用户认证使用 JWT 还是 Session？\n"
+        "- 文件上传大小限制是多少？\n"
+        "- 需要支持移动端吗？\n\n"
+        "以 JSON 数组格式输出：[{\"question\": \"...\"}]\n\n"
         + build_project_context(project)
     )
     user = f"## PRD\n{_resolve_doc(story, project, 'prd', 'prd.md')}"
