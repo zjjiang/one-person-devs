@@ -81,32 +81,63 @@ _CORRUPTED_PATTERNS = (
 
 
 def _read_claude_md(project: Project) -> str:
-    """Read CLAUDE.md from the project workspace root, if it exists."""
+    """Read CLAUDE.md from the project workspace root, if it exists.
+
+    Uses chunked reading for files larger than 10MB to avoid memory issues.
+    """
     try:
         work_dir = resolve_work_dir(project)
         claude_md = work_dir / "CLAUDE.md"
-        if claude_md.is_file():
+        if not claude_md.is_file():
+            return ""
+
+        # Check file size
+        file_size = claude_md.stat().st_size
+        max_size = 10 * 1024 * 1024  # 10MB
+
+        # Read file content (chunked if large)
+        if file_size <= max_size:
+            # Small file: read directly
             content = claude_md.read_text(encoding="utf-8").strip()
-            if not content:
-                return ""
-            # Validate: first non-empty line should be a markdown header
-            first_line = content.lstrip().split("\n", 1)[0].strip()
-            if not first_line.startswith("#"):
+        else:
+            # Large file: read in chunks
+            logger.info(
+                "CLAUDE.md for project %s is large (%.2f MB), using chunked read",
+                project.id, file_size / (1024 * 1024)
+            )
+            chunks = []
+            chunk_size = 1024 * 1024  # 1MB chunks
+            with open(claude_md, "r", encoding="utf-8") as f:
+                while True:
+                    chunk = f.read(chunk_size)
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+            content = "".join(chunks).strip()
+
+        if not content:
+            return ""
+
+        # Validate: first non-empty line should be a markdown header
+        first_line = content.lstrip().split("\n", 1)[0].strip()
+        if not first_line.startswith("#"):
+            logger.warning(
+                "CLAUDE.md for project %s does not start with a markdown header, skipping",
+                project.id,
+            )
+            return ""
+
+        # Check for AI conversation artifacts
+        head = content[:500]
+        for pattern in _CORRUPTED_PATTERNS:
+            if pattern in head:
                 logger.warning(
-                    "CLAUDE.md for project %s does not start with a markdown header, skipping",
-                    project.id,
+                    "CLAUDE.md for project %s appears corrupted (found '%s'), skipping",
+                    project.id, pattern,
                 )
                 return ""
-            # Check for AI conversation artifacts
-            head = content[:500]
-            for pattern in _CORRUPTED_PATTERNS:
-                if pattern in head:
-                    logger.warning(
-                        "CLAUDE.md for project %s appears corrupted (found '%s'), skipping",
-                        project.id, pattern,
-                    )
-                    return ""
-            return f"## 项目上下文 (CLAUDE.md)\n{content}"
+
+        return f"## 项目上下文 (CLAUDE.md)\n{content}"
     except Exception:
         logger.debug("Failed to read CLAUDE.md for project %s", project.id, exc_info=True)
     return ""
