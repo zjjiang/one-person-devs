@@ -349,18 +349,32 @@ async def stream_messages(story_id: int, mode: str = "",
         )
         all_msgs = msg_result.scalars().all()
 
+        from opd.engine.ai_message_storage import read_ai_message_content
+
         if chat_only:
             replay = False
             for msg in all_msgs:
                 if msg.role == AIMessageRole.user:
                     replay = True
                 if replay:
-                    event = {"type": msg.role.value, "content": msg.content}
-                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                    try:
+                        content = read_ai_message_content(msg, story.project)
+                        event = {"type": msg.role.value, "content": content}
+                        yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                    except ValueError as e:
+                        logger.error("Failed to read message %s: %s", msg.id, e)
+                        error_event = {"type": "error", "content": f"消息读取失败: {e}"}
+                        yield f"data: {json.dumps(error_event, ensure_ascii=False)}\n\n"
         else:
             for msg in all_msgs:
-                event = {"type": msg.role.value, "content": msg.content}
-                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                try:
+                    content = read_ai_message_content(msg, story.project)
+                    event = {"type": msg.role.value, "content": content}
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                except ValueError as e:
+                    logger.error("Failed to read message %s: %s", msg.id, e)
+                    error_event = {"type": "error", "content": f"消息读取失败: {e}"}
+                    yield f"data: {json.dumps(error_event, ensure_ascii=False)}\n\n"
 
         queue = orch.subscribe(round_id)
         try:

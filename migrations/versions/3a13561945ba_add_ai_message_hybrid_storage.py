@@ -25,9 +25,6 @@ def upgrade() -> None:
         'storage_type', sa.String(20), nullable=False, server_default='inline'
     ))
     op.add_column('ai_messages', sa.Column(
-        'content_compressed', sa.LargeBinary, nullable=True
-    ))
-    op.add_column('ai_messages', sa.Column(
         'content_file_path', sa.String(500), nullable=True
     ))
     op.add_column('ai_messages', sa.Column(
@@ -45,5 +42,4 @@ def downgrade() -> None:
     op.drop_index('ix_ai_messages_storage_type', table_name='ai_messages')
     op.drop_column('ai_messages', 'content_size')
     op.drop_column('ai_messages', 'content_file_path')
-    op.drop_column('ai_messages', 'content_compressed')
     op.drop_column('ai_messages', 'storage_type')

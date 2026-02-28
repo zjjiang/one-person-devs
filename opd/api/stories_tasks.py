@@ -196,11 +196,23 @@ def _start_ai_stage(story_id: int, orch: Orchestrator,
                         msg_type = event.get("type", "")
                         content = event.get("content", "")
                         if msg_type in ("assistant", "tool") and content:
-                            db.add(AIMessage(
+                            from opd.engine.ai_message_storage import write_ai_message_content
+
+                            # Create message with placeholder
+                            msg = AIMessage(
                                 round_id=active_round.id,
                                 role=AIMessageRole(msg_type),
-                                content=content,
-                            ))
+                                content="",  # Will be set by storage layer
+                            )
+                            db.add(msg)
+                            await db.flush()  # Get message ID
+
+                            # Write content using hybrid storage
+                            storage_fields = write_ai_message_content(
+                                story.project, active_round.id, msg.id, content
+                            )
+                            for field, value in storage_fields.items():
+                                setattr(msg, field, value)
 
                     ctx = StageContext(
                         story=story, project=story.project, round=active_round,
@@ -494,11 +506,22 @@ def _start_chat_ai(story_id: int, user_message: str, orch: Orchestrator,
                         discussion, updated_doc = parse_refine_response(full_text)
 
                         if discussion:
-                            db.add(AIMessage(
+                            from opd.engine.ai_message_storage import write_ai_message_content
+
+                            msg = AIMessage(
                                 round_id=active_round.id,
                                 role=AIMessageRole.assistant,
-                                content=discussion,
-                            ))
+                                content="",
+                            )
+                            db.add(msg)
+                            await db.flush()
+
+                            storage_fields = write_ai_message_content(
+                                story.project, active_round.id, msg.id, discussion
+                            )
+                            for field, value in storage_fields.items():
+                                setattr(msg, field, value)
+
                             post_commit_events.append({
                                 "type": "assistant", "content": discussion,
                             })

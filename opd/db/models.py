@@ -12,7 +12,6 @@ from sqlalchemy import (
     Enum,
     ForeignKey,
     Integer,
-    LargeBinary,
     String,
     Text,
     func,
@@ -306,7 +305,6 @@ class AIMessage(Base):
     storage_type: Mapped[str] = mapped_column(
         String(20), nullable=False, server_default="inline"
     )
-    content_compressed: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     content_file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     content_size: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
 

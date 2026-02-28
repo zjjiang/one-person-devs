@@ -31,7 +31,6 @@ def test_inline_storage_small_message(mock_project):
 
     assert result["storage_type"] == "inline"
     assert result["content"] == content
-    assert result["content_compressed"] is None
     assert result["content_file_path"] is None
     assert result["content_size"] == len(content.encode("utf-8"))
 
@@ -43,7 +42,6 @@ def test_inline_storage_medium_message(mock_project):
 
     assert result["storage_type"] == "inline"
     assert result["content"] == content
-    assert result["content_compressed"] is None
     assert result["content_file_path"] is None
     assert result["content_size"] == len(content.encode("utf-8"))
 
@@ -55,7 +53,6 @@ def test_file_storage_large_message(mock_project):
 
     assert result["storage_type"] == "file"
     assert result["content"] == ""
-    assert result["content_compressed"] is None
     assert result["content_file_path"] == "ai_messages/1/3.txt.gz"
     assert result["content_size"] == len(content.encode("utf-8"))
 
@@ -76,46 +73,12 @@ def test_read_inline_message():
         id=1,
         storage_type="inline",
         content="Test content",
-        content_compressed=None,
         content_file_path=None,
     )
     project = SimpleNamespace(id=1, name="test")
 
     result = read_ai_message_content(msg, project)
     assert result == "Test content"
-
-
-def test_read_compressed_message():
-    """Read compressed message (legacy support)."""
-    content = "Compressed test content"
-    compressed = gzip.compress(content.encode("utf-8"))
-
-    msg = SimpleNamespace(
-        id=2,
-        storage_type="compressed",
-        content="",
-        content_compressed=compressed,
-        content_file_path=None,
-    )
-    project = SimpleNamespace(id=1, name="test")
-
-    result = read_ai_message_content(msg, project)
-    assert result == content
-
-
-def test_read_missing_compressed_data():
-    """Reading compressed message without data should raise error (legacy)."""
-    msg = SimpleNamespace(
-        id=5,
-        storage_type="compressed",
-        content="",
-        content_compressed=None,
-        content_file_path=None,
-    )
-    project = SimpleNamespace(id=1, name="test")
-
-    with pytest.raises(ValueError, match="Compressed content missing"):
-        read_ai_message_content(msg, project)
 
 
 def test_migrate_small_message_stays_inline(mock_project):
@@ -156,10 +119,9 @@ def test_migrate_already_migrated_message(mock_project):
     msg = SimpleNamespace(
         id=9,
         round_id=1,
-        storage_type="compressed",
+        storage_type="file",
         content="",
-        content_compressed=b"...",
-        content_file_path=None,
+        content_file_path="ai_messages/1/9.txt.gz",
     )
 
     result = migrate_message_to_hybrid(msg, mock_project)

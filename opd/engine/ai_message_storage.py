@@ -40,7 +40,6 @@ def write_ai_message_content(
     Returns dict with fields to update on AIMessage:
         - storage_type: "inline" | "file"
         - content: str (for inline) or "" (for file)
-        - content_compressed: None (deprecated, always None)
         - content_file_path: str | None
         - content_size: int
     """
@@ -53,7 +52,6 @@ def write_ai_message_content(
         return {
             "storage_type": "inline",
             "content": content,
-            "content_compressed": None,
             "content_file_path": None,
             "content_size": size,
         }
@@ -76,7 +74,6 @@ def write_ai_message_content(
     return {
         "storage_type": "file",
         "content": "",  # Clear inline content
-        "content_compressed": None,
         "content_file_path": _get_message_file_relpath(round_id, message_id),
         "content_size": size,
     }
@@ -115,18 +112,6 @@ def read_ai_message_content(message: AIMessage, project: Any) -> str:
         except Exception as e:
             logger.error("Failed to read message file %s: %s", file_path, e)
             raise ValueError(f"File read failed for message {message.id}") from e
-
-    # Legacy: compressed storage (deprecated, but handle for backward compatibility)
-    if storage_type == "compressed":
-        compressed = message.content_compressed
-        if not compressed:
-            logger.error("Message %s marked compressed but no data", message.id)
-            raise ValueError(f"Compressed content missing for message {message.id}")
-        try:
-            return gzip.decompress(compressed).decode("utf-8")
-        except Exception as e:
-            logger.error("Failed to decompress message %s: %s", message.id, e)
-            raise ValueError(f"Decompression failed for message {message.id}") from e
 
     # Unknown storage type — fallback to inline
     logger.warning(
