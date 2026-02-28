@@ -249,6 +249,12 @@ preparing → clarifying → planning → designing → coding → verifying →
 - 单元测试不需要真实 DB
 - Fixtures 在 `tests/conftest.py` 中
 
+### Git 工作流
+
+- **提交前确认**: 完成代码修改和测试后，先 `git add` 和 `git commit`，但**不要立即 push**
+- **等待用户确认**: 告知用户已提交的内容，等待用户确认后再执行 `git push`
+- **提交信息**: 使用清晰的 commit message，遵循 conventional commits 格式（feat/fix/refactor/docs 等）
+
 ## 常见陷阱
 
 1. **DB 会话提交**: 在 `async for db in get_db()` 内使用 `return` 会跳过自动提交。对于错误路径，使用单独的会话块。
