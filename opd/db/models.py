@@ -207,6 +207,10 @@ class Story(Base):
         Enum(StoryStatus), default=StoryStatus.preparing
     )
     current_round: Mapped[int] = mapped_column(Integer, default=1)
+    # Active round foreign key for fast lookup
+    active_round_id: Mapped[int | None] = mapped_column(
+        ForeignKey("rounds.id", ondelete="SET NULL"), nullable=True
+    )
     # Workspace lock holder flag
     has_workspace_lock: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     # Stage outputs
@@ -229,9 +233,12 @@ class Story(Base):
     project: Mapped[Project] = relationship(
         foreign_keys=[project_id], back_populates="stories"
     )
+    active_round: Mapped[Round | None] = relationship(
+        foreign_keys=[active_round_id], lazy="joined"
+    )
     tasks: Mapped[list[Task]] = relationship(back_populates="story", cascade="all, delete-orphan")
     rounds: Mapped[list[Round]] = relationship(
-        back_populates="story", cascade="all, delete-orphan"
+        foreign_keys="Round.story_id", back_populates="story", cascade="all, delete-orphan"
     )
     clarifications: Mapped[list[Clarification]] = relationship(
         back_populates="story", cascade="all, delete-orphan"
@@ -270,7 +277,9 @@ class Round(Base):
         DateTime, server_default=func.now(), onupdate=func.now()
     )
 
-    story: Mapped[Story] = relationship(back_populates="rounds")
+    story: Mapped[Story] = relationship(
+        foreign_keys=[story_id], back_populates="rounds"
+    )
     pull_requests: Mapped[list[PullRequest]] = relationship(
         back_populates="round", cascade="all, delete-orphan"
     )
