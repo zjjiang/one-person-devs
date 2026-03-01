@@ -555,16 +555,44 @@ async def _ai_generate_claude_md(
 
 
 def _is_conversational_content(text: str) -> bool:
-    """Check if text is conversational rather than documentation."""
+    """Check if text is conversational rather than documentation.
+
+    Returns True if the text is purely conversational (should be filtered).
+    Returns False if the text contains documentation content (should be kept).
+    """
+    text_stripped = text.strip()
+    if not text_stripped:
+        return True
+
+    # Check first 200 chars for conversational patterns
+    text_head = text_stripped[:200]
+
     # Patterns that indicate conversational content
     conversational_patterns = [
-        "我将探索", "我将读取", "我将生成", "我将创建",
-        "现在我", "让我", "首先我", "接下来我",
-        "完成！我", "我已经", "我成功",
-        "好的，", "明白了", "收到",
+        # Chinese patterns
+        "我将探索", "我将读取", "我将生成", "我将创建", "我将分析",
+        "现在我", "让我", "首先我", "接下来我", "然后我",
+        "完成！我", "我已经", "我成功", "我看到",
+        "好的，", "明白了", "收到", "了解",
+        # English patterns
+        "I will explore", "I will read", "I will generate", "I will create",
+        "Let me", "Now I", "First I", "I'll analyze",
+        "Done! I", "I have successfully", "I've completed",
     ]
-    text_lower = text.strip()[:100]  # Check first 100 chars
-    return any(pattern in text_lower for pattern in conversational_patterns)
+
+    # If text starts with conversational pattern, it's likely pure conversation
+    for pattern in conversational_patterns:
+        if text_head.startswith(pattern) or text_head.startswith(pattern.lower()):
+            return True
+
+    # If text is very short and contains conversational words, filter it
+    if len(text_stripped) < 50:
+        conversational_words = ["我将", "让我", "现在", "完成", "I will", "Let me"]
+        if any(word in text_head for word in conversational_words):
+            return True
+
+    # Otherwise, keep it (might contain documentation)
+    return False
 
 
 def _fallback_claude_md(project: Project, source_context: str) -> str:
@@ -648,7 +676,9 @@ async def _ai_incremental_update_claude_md(
         "重要：\n"
         "- 你正在更新当前项目的文档\n"
         "- 只关注当前工作区的代码变更\n"
-        "- 不要引用或提及其他项目的信息\n\n"
+        "- 不要引用或提及其他项目的信息\n"
+        "- 直接输出文档内容，不要输出你的思考过程或对话内容\n"
+        "- 不要使用「我将...」「现在我...」「完成！我已经...」等表述\n\n"
         "规则：\n"
         "- 只修改受变更影响的部分\n"
         "- 保留现有内容中仍然准确的部分\n"
@@ -661,6 +691,10 @@ async def _ai_incremental_update_claude_md(
     collected: list[str] = []
     async for msg in ai_cap.provider.plan(system_prompt, user_prompt, work_dir):
         if msg.get("type") == "assistant" and msg.get("content"):
-            collected.append(msg["content"])
+            content = msg["content"]
+            # Filter out conversational content
+            if _is_conversational_content(content):
+                continue
+            collected.append(content)
 
     return "\n".join(collected).strip() if collected else existing
