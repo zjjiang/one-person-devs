@@ -143,11 +143,22 @@ def _read_claude_md(project: Project) -> str:
     return ""
 
 
-def build_project_context(project: Project) -> str:
-    """Build project-level context for AI prompts."""
+def build_project_context(project: Project, include_work_dir: bool = False) -> str:
+    """Build project-level context for AI prompts.
+
+    Args:
+        project: Project instance
+        include_work_dir: If True, include workspace directory path in context
+    """
     sections = [f"## 项目: {project.name}"]
     if project.description:
         sections.append(f"描述: {project.description}")
+
+    # Add workspace directory if requested
+    if include_work_dir:
+        work_dir = resolve_work_dir(project)
+        sections.append(f"## 工作区目录\n{work_dir}")
+
     if project.tech_stack:
         sections.append(f"## 技术栈\n{project.tech_stack}")
     if project.architecture:
@@ -167,7 +178,7 @@ def build_preparing_prompt(story: Story, project: Project) -> tuple[str, str]:
         "你是一个资深产品经理助理。根据用户提供的原始需求输入，生成一份结构化的 PRD 文档。\n"
         "PRD 应包含：需求背景、功能描述、验收标准、边界条件。\n"
         "使用 Markdown 格式输出。\n\n"
-        + build_project_context(project)
+        + build_project_context(project, include_work_dir=True)
     )
     user = f"请根据以下原始需求生成 PRD：\n\n{story.raw_input}"
     return system, user
@@ -190,7 +201,7 @@ def build_clarifying_prompt(
         "- 文件上传大小限制是多少？\n"
         "- 需要支持移动端吗？\n\n"
         "以 JSON 数组格式输出：[{\"question\": \"...\"}]\n\n"
-        + build_project_context(project)
+        + build_project_context(project, include_work_dir=True)
     )
     user = f"## PRD\n{_resolve_doc(story, project, 'prd', 'prd.md')}"
     clarifications = _clarifications_block(story)
@@ -209,7 +220,7 @@ def build_planning_prompt(story: Story, project: Project) -> tuple[str, str]:
         "2. Task 拆分：将方案拆分为可执行的 Task，标注依赖关系\n\n"
         "输出格式：先输出概要设计（Markdown），然后输出 Task 列表（JSON 数组）：\n"
         '[{"title": "...", "description": "...", "order": 1, "depends_on": []}]\n\n'
-        + build_project_context(project)
+        + build_project_context(project, include_work_dir=True)
         + _COMPLETION_INSTRUCTION
     )
     user = f"## 确认后的 PRD\n{_resolve_doc(story, project, 'confirmed_prd', 'prd.md') or _resolve_doc(story, project, 'prd', 'prd.md')}"
@@ -222,7 +233,7 @@ def build_designing_prompt(story: Story, project: Project) -> tuple[str, str]:
         "你是一个高级开发者。根据概要设计和 Task 列表，生成一份详细设计文档。\n"
         "详细设计应覆盖所有 Task 的实现细节，包括：改哪些文件、每个文件的改动说明。\n"
         "使用 Markdown 格式输出。\n\n"
-        + build_project_context(project)
+        + build_project_context(project, include_work_dir=True)
         + _COMPLETION_INSTRUCTION
     )
     tasks = _tasks_block(story)
@@ -236,7 +247,7 @@ def build_coding_prompt(story: Story, project: Project, round_: Round) -> tuple[
         "你是一个资深开发者。根据详细设计文档，按照 Task 顺序编写代码。\n"
         "严格按照设计文档实现，不要添加额外功能。\n"
         "编码完成后，请输出一段总结，包括：改动概述、如何运行和测试、注意事项。\n\n"
-        + build_project_context(project)
+        + build_project_context(project, include_work_dir=True)
     )
     user = f"## 详细设计\n{_resolve_doc(story, project, 'detailed_design', 'detailed_design.md')}"
     tasks = _tasks_block(story)
@@ -306,7 +317,7 @@ def build_refine_prd_prompt(
         "你是一个资深产品经理助理。你正在和用户讨论并完善一份 PRD 文档。\n"
         "用户可能会提出修改意见、提问、或要求调整 PRD 的某些部分。\n"
         + _REFINE_FORMAT_INSTRUCTION + "\n\n"
-        + build_project_context(project)
+        + build_project_context(project, include_work_dir=True)
     )
     prd_content = _resolve_doc(story, project, "prd", "prd.md") or "（尚未生成）"
     parts = [f"## 当前 PRD\n{prd_content}"]
@@ -329,7 +340,7 @@ def build_clarifying_chat_prompt(
         "基于你对项目的理解，分析 PRD 中可能存在的模糊点，提出建议或回答用户的问题。\n"
         "如果讨论中发现 PRD 需要修改，请输出更新后的完整 PRD。\n"
         + _REFINE_FORMAT_INSTRUCTION + "\n\n"
-        + build_project_context(project)
+        + build_project_context(project, include_work_dir=True)
     )
     prd_content = _resolve_doc(story, project, "prd", "prd.md") or "（尚未生成）"
     parts = [f"## 当前 PRD\n{prd_content}"]
@@ -354,7 +365,7 @@ def build_planning_chat_prompt(
         "你是一个资深架构师。你正在和用户讨论并完善技术方案文档。\n"
         "用户可能会提出修改意见、提问、或要求调整技术方案的某些部分。\n"
         + _REFINE_FORMAT_INSTRUCTION + "\n\n"
-        + build_project_context(project)
+        + build_project_context(project, include_work_dir=True)
     )
     td_content = _resolve_doc(story, project, "technical_design", "technical_design.md") or "（尚未生成）"
     prd_content = _resolve_doc(story, project, "confirmed_prd", "prd.md") or _resolve_doc(
@@ -382,7 +393,7 @@ def build_designing_chat_prompt(
         "你是一个高级开发者。你正在和用户讨论并完善详细设计文档。\n"
         "用户可能会提出修改意见、提问、或要求调整详细设计的某些部分。\n"
         + _REFINE_FORMAT_INSTRUCTION + "\n\n"
-        + build_project_context(project)
+        + build_project_context(project, include_work_dir=True)
     )
     dd_content = _resolve_doc(story, project, "detailed_design", "detailed_design.md") or "（尚未生成）"
     td_content = _resolve_doc(story, project, "technical_design", "technical_design.md") or ""
