@@ -158,8 +158,9 @@ class ClaudeCodeProvider(AIProvider):
 
     async def plan(self, system_prompt: str,
                    user_prompt: str,
-                   work_dir: str = "") -> AsyncIterator[dict]:
-        async for msg in self._invoke_stream(user_prompt, system_prompt, work_dir or None):
+                   work_dir: str = "",
+                   max_turns: int | None = None) -> AsyncIterator[dict]:
+        async for msg in self._invoke_stream(user_prompt, system_prompt, work_dir or None, max_turns):
             yield msg
 
     async def design(self, system_prompt: str,

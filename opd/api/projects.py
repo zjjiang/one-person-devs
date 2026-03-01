@@ -440,7 +440,7 @@ def _launch_sync_context(project_id: int, orch: Orchestrator) -> None:
                         "type": "system", "content": "正在扫描项目工作区...",
                     })
 
-                    source_ctx = scan_workspace(project, max_depth=4, max_chars=12000)
+                    source_ctx = scan_workspace(project, max_depth=4, max_chars=50000)
                     if not source_ctx:
                         done_event = {"type": "error", "content": "工作区扫描为空"}
                         return
@@ -506,21 +506,43 @@ async def _ai_generate_claude_md(
     """Call AI to generate a comprehensive CLAUDE.md."""
 
     system_prompt = (
-        "你是一个资深工程师。根据项目的源码结构和关键文件内容，"
-        "生成一份 CLAUDE.md 文件，供 AI 编码助手理解项目上下文。\n\n"
-        "重要：\n"
-        "- 你当前正在为一个独立的项目生成文档\n"
-        "- 只关注当前工作区的代码和文件\n"
-        "- 不要引用或提及其他项目的信息\n"
-        "- 直接输出文档内容，不要输出你的思考过程或对话内容\n"
-        "- 不要使用「我将...」「现在我...」「完成！我已经...」等表述\n\n"
-        "CLAUDE.md 应包含：\n"
-        "- 项目概述（一句话描述）\n"
-        "- 技术栈\n"
-        "- 项目架构（请求流、核心模块、数据流）\n"
-        "- 常用命令（启动、测试、构建、lint）\n"
-        "- 关键目录和文件说明\n"
-        "- 编码规范和注意事项\n\n"
+        "你是一个资深工程师。你的任务是深入探索项目代码库，生成一份全面的 CLAUDE.md 文件，"
+        "供 AI 编码助手理解项目上下文。\n\n"
+        "## 工作流程\n\n"
+        "1. **主动探索代码库**：\n"
+        "   - 使用 Read 工具读取关键文件的完整内容（不要只依赖初始提供的摘要）\n"
+        "   - 使用 Grep 工具搜索重要的类、函数、接口定义\n"
+        "   - 使用 Glob 工具查找特定类型的文件（如配置文件、测试文件）\n"
+        "   - 深入理解项目的架构、数据流、核心模块\n\n"
+        "2. **重点关注**：\n"
+        "   - 入口文件（main.py, index.ts, app.py 等）\n"
+        "   - 配置文件（package.json, pyproject.toml, requirements.txt 等）\n"
+        "   - 核心业务逻辑模块\n"
+        "   - API 路由定义\n"
+        "   - 数据模型定义\n"
+        "   - 关键的工具函数和辅助模块\n\n"
+        "3. **输出要求**：\n"
+        "   - 直接输出文档内容，不要输出你的思考过程或对话内容\n"
+        "   - 不要使用「我将...」「现在我...」「完成！我已经...」等表述\n"
+        "   - 只关注当前工作区的代码和文件\n"
+        "   - 不要引用或提及其他项目的信息\n\n"
+        "## CLAUDE.md 应包含\n\n"
+        "- **项目概述**：一句话描述 + 核心功能\n"
+        "- **技术栈**：语言、框架、主要依赖库\n"
+        "- **项目架构**：\n"
+        "  - 请求流（HTTP 请求如何被处理）\n"
+        "  - 核心模块及其职责\n"
+        "  - 数据流（数据如何在模块间流转）\n"
+        "  - 关键设计模式\n"
+        "- **常用命令**：启动、测试、构建、lint、部署\n"
+        "- **关键目录和文件**：\n"
+        "  - 目录结构说明\n"
+        "  - 重要文件的作用（带行号引用）\n"
+        "  - 核心类/函数的位置\n"
+        "- **数据模型**：主要实体及其关系\n"
+        "- **API 端点**：主要路由及其功能\n"
+        "- **编码规范**：项目特定的规范和注意事项\n"
+        "- **常见陷阱**：已知问题、易错点、技术债务\n\n"
         "直接输出 Markdown 内容，不要包含 ```markdown 代码块包裹。"
     )
 
@@ -540,7 +562,7 @@ async def _ai_generate_claude_md(
 
     work_dir = str(resolve_work_dir(project))
     collected: list[str] = []
-    async for msg in ai_cap.provider.plan(system_prompt, user_prompt, work_dir):
+    async for msg in ai_cap.provider.plan(system_prompt, user_prompt, work_dir, max_turns=50):
         if msg.get("type") == "assistant" and msg.get("content"):
             content = msg["content"]
             # Filter out conversational content
@@ -689,7 +711,7 @@ async def _ai_incremental_update_claude_md(
     user_prompt = f"## 现有 CLAUDE.md\n{existing}\n\n## 最近合并的变更\n{diff_summary}"
 
     collected: list[str] = []
-    async for msg in ai_cap.provider.plan(system_prompt, user_prompt, work_dir):
+    async for msg in ai_cap.provider.plan(system_prompt, user_prompt, work_dir, max_turns=30):
         if msg.get("type") == "assistant" and msg.get("content"):
             content = msg["content"]
             # Filter out conversational content
