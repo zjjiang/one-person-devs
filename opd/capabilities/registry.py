@@ -255,8 +255,13 @@ class CapabilityRegistry:
                          provider_override, config_override.
         """
         new_reg = CapabilityRegistry()
-        new_reg._external_providers = self._external_providers
+        # Deep copy external_providers to avoid shared state
+        new_reg._external_providers = {
+            cat: dict(providers) for cat, providers in self._external_providers.items()
+        }
         # Start with a copy of current capabilities
+        # Note: Capabilities are recreated below with new provider instances,
+        # so shallow copy is sufficient here
         new_reg._capabilities = dict(self._capabilities)
 
         for pc in project_configs:
