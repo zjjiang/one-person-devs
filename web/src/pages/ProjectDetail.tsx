@@ -228,42 +228,42 @@ export default function ProjectDetail() {
                 />
               ),
             },
-            {
-              key: "rules",
-              label: `规则 (${project.rules.length})`,
-              children: (
-                <Table
-                  rowKey="id"
-                  dataSource={project.rules}
-                  pagination={false}
-                  columns={[
-                    { title: "类别", dataIndex: "category", width: 120 },
-                    { title: "内容", dataIndex: "content", ellipsis: true },
-                    {
-                      title: "启用",
-                      dataIndex: "enabled",
-                      width: 80,
-                      render: (v: boolean) => (v ? "是" : "否"),
-                    },
-                  ]}
-                />
-              ),
-            },
-            {
-              key: "skills",
-              label: `技能 (${project.skills.length})`,
-              children: (
-                <Table
-                  rowKey="id"
-                  dataSource={project.skills}
-                  pagination={false}
-                  columns={[
-                    { title: "名称", dataIndex: "name" },
-                    { title: "触发方式", dataIndex: "trigger", width: 160 },
-                  ]}
-                />
-              ),
-            },
+            // {
+            //   key: "rules",
+            //   label: `规则 (${project.rules.length})`,
+            //   children: (
+            //     <Table
+            //       rowKey="id"
+            //       dataSource={project.rules}
+            //       pagination={false}
+            //       columns={[
+            //         { title: "类别", dataIndex: "category", width: 120 },
+            //         { title: "内容", dataIndex: "content", ellipsis: true },
+            //         {
+            //           title: "启用",
+            //           dataIndex: "enabled",
+            //           width: 80,
+            //           render: (v: boolean) => (v ? "是" : "否"),
+            //         },
+            //       ]}
+            //     />
+            //   ),
+            // },
+            // {
+            //   key: "skills",
+            //   label: `技能 (${project.skills.length})`,
+            //   children: (
+            //     <Table
+            //       rowKey="id"
+            //       dataSource={project.skills}
+            //       pagination={false}
+            //       columns={[
+            //         { title: "名称", dataIndex: "name" },
+            //         { title: "触发方式", dataIndex: "trigger", width: 160 },
+            //       ]}
+            //     />
+            //   ),
+            // },
           ]}
         />
       </Card>
