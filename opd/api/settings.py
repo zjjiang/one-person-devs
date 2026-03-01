@@ -17,6 +17,7 @@ from opd.db.models import GlobalCapabilityConfig
 from opd.engine.orchestrator import Orchestrator
 from opd.models.schemas import (
     CreateGlobalCapabilityRequest,
+    ImportCapabilityConfigsRequest,
     SaveGlobalCapabilityRequest,
     TestGlobalCapabilityRequest,
 )
@@ -185,6 +186,67 @@ async def verify_all_capabilities(
         rid, status = item
         results[rid] = status
     return results
+
+
+@router.get("/capabilities/export")
+async def export_global_capabilities(db: AsyncSession = Depends(get_db)):
+    """Export all global capability configs as JSON."""
+    result = await db.execute(select(GlobalCapabilityConfig))
+    rows = result.scalars().all()
+    return [
+        {
+            "capability": r.capability,
+            "provider": r.provider,
+            "enabled": r.enabled,
+            "label": r.label,
+            "config": r.config,
+        }
+        for r in rows
+    ]
+
+
+@router.post("/capabilities/import")
+async def import_global_capabilities(
+    body: ImportCapabilityConfigsRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Import global capability configs. Skip duplicates by capability+provider."""
+    result = await db.execute(select(GlobalCapabilityConfig))
+    existing = {(r.capability, r.provider) for r in result.scalars().all()}
+
+    created, skipped = 0, 0
+    for item in body.configs:
+        key = (item.capability, item.provider)
+        if key in existing:
+            if body.skip_existing:
+                skipped += 1
+                continue
+            # overwrite: update existing row
+            res = await db.execute(
+                select(GlobalCapabilityConfig).where(
+                    GlobalCapabilityConfig.capability == item.capability,
+                    GlobalCapabilityConfig.provider == item.provider,
+                )
+            )
+            row = res.scalar_one()
+            row.enabled = item.enabled
+            row.label = item.label
+            row.config = item.config or {}
+            skipped += 1  # count as skipped in response for clarity
+            continue
+        row = GlobalCapabilityConfig(
+            capability=item.capability,
+            provider=item.provider,
+            enabled=item.enabled,
+            label=item.label,
+            config=item.config or {},
+        )
+        db.add(row)
+        existing.add(key)
+        created += 1
+
+    await db.flush()
+    return {"ok": True, "created": created, "skipped": skipped}
 
 
 @router.delete("/capabilities/{config_id}")

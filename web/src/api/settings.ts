@@ -75,3 +75,23 @@ export const verifyAllCapabilities = () =>
     "/api/settings/capabilities/verify-all",
     { method: "POST" },
   );
+
+export interface ExportCapabilityItem {
+  capability: string;
+  provider: string;
+  enabled: boolean;
+  label: string | null;
+  config: Record<string, string> | null;
+}
+
+export const exportCapabilities = () =>
+  request<ExportCapabilityItem[]>("/api/settings/capabilities/export");
+
+export const importCapabilities = (data: {
+  configs: ExportCapabilityItem[];
+  skip_existing?: boolean;
+}) =>
+  request<{ ok: boolean; created: number; skipped: number }>(
+    "/api/settings/capabilities/import",
+    { method: "POST", body: JSON.stringify(data) },
+  );

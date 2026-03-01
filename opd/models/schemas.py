@@ -95,6 +95,19 @@ class TestGlobalCapabilityRequest(BaseModel):
     config: dict
 
 
+class ImportCapabilityConfigItem(BaseModel):
+    capability: str
+    provider: str
+    enabled: bool = True
+    label: str | None = None
+    config: dict | None = None
+
+
+class ImportCapabilityConfigsRequest(BaseModel):
+    configs: list[ImportCapabilityConfigItem]
+    skip_existing: bool = True
+
+
 class UpdatePrdRequest(BaseModel):
     prd: str
 

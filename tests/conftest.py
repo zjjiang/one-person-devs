@@ -5,13 +5,17 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from opd.api.deps import get_db, get_orch
 from opd.capabilities.base import Capability, HealthStatus, Provider
 from opd.capabilities.registry import CapabilityRegistry
 from opd.db.models import Base, RoundStatus, RoundType, StoryStatus
 from opd.engine.orchestrator import Orchestrator
+from opd.engine.stages.preparing import PreparingStage
 from opd.engine.state_machine import StateMachine
+from opd.main import create_app, get_orchestrator
 
 
 # --- Mock Provider ---
@@ -102,4 +106,35 @@ async def db_session():
     async with session_factory() as session:
         async with session.begin():
             yield session
+    await engine.dispose()
+
+
+@pytest.fixture
+async def app_client():
+    """Create a test app with in-memory DB."""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    app = create_app()
+
+    async def override_get_db():
+        async with session_factory() as session:
+            async with session.begin():
+                yield session
+
+    registry = CapabilityRegistry()
+    registry._capabilities["ai"] = Capability("ai", MockAIProvider())
+    stages = {StoryStatus.preparing.value: PreparingStage()}
+    orch = Orchestrator(stages=stages, state_machine=StateMachine(), capabilities=registry)
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_orch] = lambda: orch
+    app.dependency_overrides[get_orchestrator] = lambda: orch
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        yield client
+
     await engine.dispose()

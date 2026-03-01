@@ -21,6 +21,8 @@ import {
   DeleteOutlined,
   CheckCircleOutlined,
   SyncOutlined,
+  DownloadOutlined,
+  UploadOutlined,
 } from "@ant-design/icons";
 import {
   getGlobalCapabilities,
@@ -30,6 +32,8 @@ import {
   testGlobalCapability,
   deleteGlobalCapability,
   verifyAllCapabilities,
+  exportCapabilities,
+  importCapabilities,
   type GlobalCapabilityItem,
   type AvailableCapability,
   type ConfigSchemaField,
@@ -179,6 +183,50 @@ export default function GlobalSettings() {
     } finally {
       setVerifying(false);
     }
+  };
+
+  const handleExport = async () => {
+    try {
+      const data = await exportCapabilities();
+      const blob = new Blob([JSON.stringify(data, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "opd-capabilities.json";
+      a.click();
+      URL.revokeObjectURL(url);
+      message.success(`已导出 ${data.length} 项配置`);
+    } catch {
+      message.error("导出失败");
+    }
+  };
+
+  const handleImport = () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".json";
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const configs = JSON.parse(text);
+        if (!Array.isArray(configs)) {
+          message.error("文件格式错误：需要 JSON 数组");
+          return;
+        }
+        const res = await importCapabilities({ configs, skip_existing: true });
+        message.success(
+          `导入完成：新增 ${res.created} 项，跳过 ${res.skipped} 项`,
+        );
+        loadCaps();
+      } catch {
+        message.error("导入失败：请检查文件格式");
+      }
+    };
+    input.click();
   };
 
   // Available capability types for the add modal
@@ -362,6 +410,16 @@ export default function GlobalSettings() {
           </Typography.Paragraph>
         </div>
         <Space>
+          <Button
+            icon={<DownloadOutlined />}
+            onClick={handleExport}
+            disabled={caps.length === 0}
+          >
+            导出配置
+          </Button>
+          <Button icon={<UploadOutlined />} onClick={handleImport}>
+            导入配置
+          </Button>
           <Button
             icon={<SyncOutlined spin={verifying} />}
             loading={verifying}
