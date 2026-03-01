@@ -348,7 +348,7 @@ async def merge_story_pr(
     await db.flush()
 
     # Notify merge success
-    story_link = f"{_get_site_url()}/projects/{story.project_id}/stories/{story_id}"
+    story_link = f"{await _get_site_url()}/projects/{story.project_id}/stories/{story_id}"
     try:
         await send_notification(
             get_session_factory(), NotificationType.pr_merged,

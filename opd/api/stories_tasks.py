@@ -7,7 +7,7 @@ import json
 import logging
 import re
 
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from opd.capabilities.registry import build_capability_overrides
@@ -39,8 +39,6 @@ from opd.engine.stages.base import StageContext
 from opd.engine.state_machine import ensure_status_value
 from opd.engine.workspace import (
     DOC_FIELD_MAP,
-    create_coding_branch,
-    generate_branch_name,
     resolve_work_dir,
     write_doc,
 )
@@ -48,12 +46,15 @@ from opd.engine.workspace import (
 logger = logging.getLogger(__name__)
 
 _site_url: str | None = None
+_site_url_lock = asyncio.Lock()
 
 
-def _get_site_url() -> str:
+async def _get_site_url() -> str:
     global _site_url
     if _site_url is None:
-        _site_url = load_config().server.site_url.rstrip("/")
+        async with _site_url_lock:
+            if _site_url is None:  # Double-check after acquiring lock
+                _site_url = load_config().server.site_url.rstrip("/")
     return _site_url
 
 _STAGE_LABELS: dict[str, str] = {
@@ -317,7 +318,7 @@ def _start_ai_stage(story_id: int, orch: Orchestrator,
                 await orch.publish(round_id, done_event)
             # Send notifications after commit
             stage_label = _STAGE_LABELS.get(status, status)
-            story_link = f"{_get_site_url()}/projects/{project_id}/stories/{story_id}"
+            story_link = f"{await _get_site_url()}/projects/{project_id}/stories/{story_id}"
             if done_event and done_event.get("type") == "done":
                 # Pick the primary generated doc for file attachment
                 doc_content = None

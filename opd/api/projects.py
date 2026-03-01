@@ -37,68 +37,76 @@ router = APIRouter(prefix="/api/projects", tags=["projects"])
 
 # Track running clone tasks by project id
 _clone_tasks: dict[int, asyncio.Task] = {}
+_clone_locks: dict[int, asyncio.Lock] = {}
 
 
 def _launch_clone(project_id: int, repo_url: str) -> None:
     """Launch async git clone for a project."""
-    if project_id in _clone_tasks:
-        return  # Already running
+    # Get or create lock for this project
+    lock = _clone_locks.setdefault(project_id, asyncio.Lock())
 
-    async def _run() -> None:
-        await asyncio.sleep(0.3)  # Wait for request DB session to commit
-        session_factory = get_session_factory()
+    async def _run_with_lock() -> None:
+        async with lock:
+            if project_id in _clone_tasks:
+                return  # Already running
 
-        # Resolve SCM token from registry or global config
-        token = await _resolve_scm_token(session_factory)
-        logger.info("Clone project %s: token resolved = %s", project_id, bool(token))
+            async def _run() -> None:
+                await asyncio.sleep(0.3)  # Wait for request DB session to commit
+                session_factory = get_session_factory()
 
-        try:
-            async with session_factory() as db:
-                async with db.begin():
-                    result = await db.execute(
-                        select(Project).where(Project.id == project_id)
-                    )
-                    project = result.scalar_one_or_none()
-                    if not project:
-                        return
-                    project.workspace_status = WorkspaceStatus.cloning
-                    project.workspace_error = ""
+                # Resolve SCM token from registry or global config
+                token = await _resolve_scm_token(session_factory)
+                logger.info("Clone project %s: token resolved = %s", project_id, bool(token))
 
-            async with session_factory() as db:
-                async with db.begin():
-                    result = await db.execute(
-                        select(Project).where(Project.id == project_id)
-                    )
-                    project = result.scalar_one_or_none()
-                    if not project:
-                        return
+                try:
+                    async with session_factory() as db:
+                        async with db.begin():
+                            result = await db.execute(
+                                select(Project).where(Project.id == project_id)
+                            )
+                            project = result.scalar_one_or_none()
+                            if not project:
+                                return
+                            project.workspace_status = WorkspaceStatus.cloning
+                            project.workspace_error = ""
+
+                    async with session_factory() as db:
+                        async with db.begin():
+                            result = await db.execute(
+                                select(Project).where(Project.id == project_id)
+                            )
+                            project = result.scalar_one_or_none()
+                            if not project:
+                                return
+                            try:
+                                await clone_workspace(project, repo_url, token=token)
+                                project.workspace_status = WorkspaceStatus.ready
+                                project.workspace_error = ""
+                            except Exception as e:
+                                logger.exception("Clone failed for project %s", project_id)
+                                project.workspace_status = WorkspaceStatus.error
+                                project.workspace_error = str(e)
+                except Exception as e:
+                    logger.exception("Clone task crashed for project %s", project_id)
                     try:
-                        await clone_workspace(project, repo_url, token=token)
-                        project.workspace_status = WorkspaceStatus.ready
-                        project.workspace_error = ""
-                    except Exception as e:
-                        logger.exception("Clone failed for project %s", project_id)
-                        project.workspace_status = WorkspaceStatus.error
-                        project.workspace_error = str(e)
-        except Exception as e:
-            logger.exception("Clone task crashed for project %s", project_id)
-            try:
-                async with session_factory() as db:
-                    async with db.begin():
-                        result = await db.execute(
-                            select(Project).where(Project.id == project_id)
-                        )
-                        project = result.scalar_one_or_none()
-                        if project:
-                            project.workspace_status = WorkspaceStatus.error
-                            project.workspace_error = str(e)
-            except Exception:
-                logger.exception("Failed to update error status for project %s", project_id)
-        finally:
-            _clone_tasks.pop(project_id, None)
+                        async with session_factory() as db:
+                            async with db.begin():
+                                result = await db.execute(
+                                    select(Project).where(Project.id == project_id)
+                                )
+                                project = result.scalar_one_or_none()
+                                if project:
+                                    project.workspace_status = WorkspaceStatus.error
+                                    project.workspace_error = str(e)
+                    except Exception:
+                        logger.exception("Failed to update error status for project %s", project_id)
+                finally:
+                    _clone_tasks.pop(project_id, None)
 
-    task = asyncio.create_task(_run())
-    _clone_tasks[project_id] = task
+            task = asyncio.create_task(_run())
+            _clone_tasks[project_id] = task
+
+    asyncio.create_task(_run_with_lock())
 
 
 async def _resolve_scm_token(session_factory) -> str | None:

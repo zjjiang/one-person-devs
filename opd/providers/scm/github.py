@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
-import subprocess
 
 from opd.capabilities.base import HealthStatus
 from opd.providers.scm.base import SCMProvider
@@ -91,12 +91,25 @@ class GitHubProvider(SCMProvider):
 
     async def clone_repo(self, repo_url: str, target_dir: str) -> None:
         auth_url = repo_url.replace("https://", f"https://x-access-token:{self._token}@")
-        subprocess.run(["git", "clone", auth_url, target_dir], check=True, capture_output=True)
+        proc = await asyncio.create_subprocess_exec(
+            "git", "clone", auth_url, target_dir,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            raise RuntimeError(f"git clone failed: {stderr.decode()}")
 
     async def create_branch(self, repo_dir: str, branch_name: str) -> None:
-        subprocess.run(
-            ["git", "checkout", "-b", branch_name], cwd=repo_dir, check=True, capture_output=True
+        proc = await asyncio.create_subprocess_exec(
+            "git", "checkout", "-b", branch_name,
+            cwd=repo_dir,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
+        stdout, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            raise RuntimeError(f"git checkout -b failed: {stderr.decode()}")
 
     async def commit_and_push(self, repo_dir: str, branch_name: str, message: str) -> None:
         cmds = [
@@ -105,7 +118,15 @@ class GitHubProvider(SCMProvider):
             ["git", "push", "origin", branch_name],
         ]
         for cmd in cmds:
-            subprocess.run(cmd, cwd=repo_dir, check=True, capture_output=True)
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                cwd=repo_dir,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await proc.communicate()
+            if proc.returncode != 0:
+                raise RuntimeError(f"git command {' '.join(cmd)} failed: {stderr.decode()}")
 
     async def create_pull_request(self, repo_url: str, branch: str,
                                   title: str, body: str) -> dict:
@@ -139,9 +160,12 @@ class GitHubProvider(SCMProvider):
         pr.edit(state="closed")
 
     async def get_repo_structure(self, repo_dir: str) -> str:
-        result = subprocess.run(
-            ["find", ".", "-type", "f", "-not", "-path", "./.git/*",
-             "-not", "-path", "./.venv/*", "-not", "-path", "./node_modules/*"],
-            cwd=repo_dir, capture_output=True, text=True,
+        proc = await asyncio.create_subprocess_exec(
+            "find", ".", "-type", "f", "-not", "-path", "./.git/*",
+            "-not", "-path", "./.venv/*", "-not", "-path", "./node_modules/*",
+            cwd=repo_dir,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
-        return result.stdout[:5000]
+        stdout, stderr = await proc.communicate()
+        return stdout.decode()[:5000]
