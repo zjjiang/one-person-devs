@@ -106,29 +106,18 @@ class ClaudeCodeProvider(AIProvider):
             opts["cwd"] = work_dir
         if max_turns is not None:
             opts["max_turns"] = max_turns
+
+        # Pass auth config via env dict instead of modifying os.environ
+        # This ensures thread-safety for concurrent requests
+        env = {}
+        if self.config.get("auth_token"):
+            env["ANTHROPIC_AUTH_TOKEN"] = self.config["auth_token"]
+        if self.config.get("base_url"):
+            env["ANTHROPIC_BASE_URL"] = self.config["base_url"]
+        if env:
+            opts["env"] = env
+
         return ClaudeCodeOptions(**opts)
-
-    def _apply_env(self) -> dict[str, str | None]:
-        """Set config values as env vars for the SDK, return old values for restore."""
-        mapping = {
-            "auth_token": "ANTHROPIC_AUTH_TOKEN",
-            "base_url": "ANTHROPIC_BASE_URL",
-        }
-        old = {}
-        for cfg_key, env_key in mapping.items():
-            val = self.config.get(cfg_key)
-            if val:
-                old[env_key] = os.environ.get(env_key)
-                os.environ[env_key] = val
-        return old
-
-    def _restore_env(self, old: dict[str, str | None]):
-        """Restore env vars to previous values."""
-        for key, val in old.items():
-            if val is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = val
 
     async def _invoke_stream(self, prompt: str, system_prompt: str,
                              work_dir: str | None = None,
@@ -139,7 +128,6 @@ class ClaudeCodeProvider(AIProvider):
             return
 
         options = self._build_options(system_prompt, work_dir, max_turns)
-        old_env = self._apply_env()
         try:
             async for msg in query(prompt=prompt, options=options):
                 if hasattr(msg, "content") and msg.content:
@@ -155,8 +143,6 @@ class ClaudeCodeProvider(AIProvider):
         except Exception as e:
             logger.exception("Claude Code SDK error")
             yield {"type": "error", "content": str(e)}
-        finally:
-            self._restore_env(old_env)
 
     async def prepare_prd(self, system_prompt: str,
                           user_prompt: str,
