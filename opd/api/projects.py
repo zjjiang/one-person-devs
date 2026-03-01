@@ -511,7 +511,9 @@ async def _ai_generate_claude_md(
         "重要：\n"
         "- 你当前正在为一个独立的项目生成文档\n"
         "- 只关注当前工作区的代码和文件\n"
-        "- 不要引用或提及其他项目的信息\n\n"
+        "- 不要引用或提及其他项目的信息\n"
+        "- 直接输出文档内容，不要输出你的思考过程或对话内容\n"
+        "- 不要使用「我将...」「现在我...」「完成！我已经...」等表述\n\n"
         "CLAUDE.md 应包含：\n"
         "- 项目概述（一句话描述）\n"
         "- 技术栈\n"
@@ -540,11 +542,29 @@ async def _ai_generate_claude_md(
     collected: list[str] = []
     async for msg in ai_cap.provider.plan(system_prompt, user_prompt, work_dir):
         if msg.get("type") == "assistant" and msg.get("content"):
-            collected.append(msg["content"])
+            content = msg["content"]
+            # Filter out conversational content
+            if _is_conversational_content(content):
+                continue
+            collected.append(content)
             if publish:
-                await publish({"type": "assistant", "content": msg["content"]})
+                await publish({"type": "assistant", "content": content})
 
-    return "\n".join(collected).strip() if collected else _fallback_claude_md(project, source_context)
+    result = "\n".join(collected).strip()
+    return result if result else _fallback_claude_md(project, source_context)
+
+
+def _is_conversational_content(text: str) -> bool:
+    """Check if text is conversational rather than documentation."""
+    # Patterns that indicate conversational content
+    conversational_patterns = [
+        "我将探索", "我将读取", "我将生成", "我将创建",
+        "现在我", "让我", "首先我", "接下来我",
+        "完成！我", "我已经", "我成功",
+        "好的，", "明白了", "收到",
+    ]
+    text_lower = text.strip()[:100]  # Check first 100 chars
+    return any(pattern in text_lower for pattern in conversational_patterns)
 
 
 def _fallback_claude_md(project: Project, source_context: str) -> str:
