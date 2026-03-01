@@ -440,7 +440,7 @@ def _launch_sync_context(project_id: int, orch: Orchestrator) -> None:
                         "type": "system", "content": "正在扫描项目工作区...",
                     })
 
-                    source_ctx = scan_workspace(project, max_depth=4, max_chars=50000)
+                    source_ctx = scan_workspace(project, max_depth=5, max_chars=100000)
                     if not source_ctx:
                         done_event = {"type": "error", "content": "工作区扫描为空"}
                         return
@@ -506,65 +506,44 @@ async def _ai_generate_claude_md(
     """Call AI to generate a comprehensive CLAUDE.md."""
 
     system_prompt = (
-        "你是一个资深工程师。你的任务是深入探索项目代码库，生成一份**详细、完整、可操作**的 CLAUDE.md 文档，"
-        "供 AI 编码助手理解项目上下文。\n\n"
-        "## 关键要求\n\n"
-        "**这不是生成报告，而是生成实际的文档内容！**\n"
+        "你是一个资深工程师。你的任务是生成一份**详细、可操作**的 CLAUDE.md 文档。\n\n"
+        "## 核心要求\n\n"
+        "**这是文档，不是报告！**\n"
         "- 不要只列出标题和大纲\n"
-        "- 每个章节都必须包含详细的说明、具体的示例、实际的代码片段\n"
-        "- 文档应该让读者能够立即理解项目并开始工作\n"
-        "- 不要输出「已生成...」「包含...」等元信息，直接输出文档正文\n\n"
+        "- 每个章节必须包含实际代码片段（10-30 行）\n"
+        "- 使用 Read 工具提取真实代码，不要写摘要\n"
+        "- 所有引用必须包含文件路径和行号\n"
+        "- 不要输出元信息（「已生成...」「包含...」）\n\n"
         "## 工作流程\n\n"
-        "1. **主动探索代码库**：\n"
-        "   - 使用 Read 工具读取关键文件的完整内容（不要只依赖初始提供的摘要）\n"
-        "   - 使用 Grep 工具搜索重要的类、函数、接口定义\n"
-        "   - 使用 Glob 工具查找特定类型的文件（如配置文件、测试文件）\n"
-        "   - 深入理解项目的架构、数据流、核心模块\n\n"
-        "2. **重点关注**：\n"
-        "   - 入口文件（main.py, index.ts, app.py 等）\n"
-        "   - 配置文件（package.json, pyproject.toml, requirements.txt 等）\n"
-        "   - 核心业务逻辑模块\n"
-        "   - API 路由定义\n"
-        "   - 数据模型定义\n"
-        "   - 关键的工具函数和辅助模块\n\n"
-        "3. **输出格式**：\n"
-        "   - 直接以 `# 项目名称` 开头\n"
-        "   - 不要输出你的思考过程或对话内容\n"
-        "   - 不要使用「我将...」「现在我...」「完成！我已经...」「已生成...」等表述\n"
-        "   - 只关注当前工作区的代码和文件\n"
-        "   - 不要引用或提及其他项目的信息\n\n"
-        "## CLAUDE.md 必须包含的详细内容\n\n"
-        "- **项目概述**：一句话描述 + 核心功能的详细说明（3-5段）\n"
-        "- **技术栈**：列出语言、框架、主要依赖库及其版本\n"
-        "- **常用命令**：提供完整的命令示例（启动、测试、构建、lint、部署），包含参数说明\n"
-        "- **项目架构**：\n"
-        "  - 请求流：详细描述 HTTP 请求如何被处理，包含具体的文件路径和函数名\n"
-        "  - 核心模块：列出每个模块的职责、关键类/函数、文件位置（带行号）\n"
-        "  - 数据流：描述数据如何在模块间流转，包含具体的函数调用链\n"
-        "  - 关键设计模式：说明使用了哪些设计模式及其实现位置\n"
-        "- **关键目录和文件**：\n"
-        "  - 提供完整的目录树结构\n"
-        "  - 详细说明每个重要文件的作用（带行号引用）\n"
-        "  - 列出核心类/函数的位置和签名\n"
-        "- **数据模型**：\n"
-        "  - 列出主要实体及其字段\n"
-        "  - 说明实体之间的关系（一对多、多对多等）\n"
-        "  - 提供数据库表结构或 ORM 模型定义\n"
-        "- **API 端点**：\n"
-        "  - 列出所有主要路由\n"
-        "  - 说明每个端点的功能、请求参数、响应格式\n"
-        "  - 提供示例请求和响应\n"
-        "- **编码规范**：\n"
-        "  - 项目特定的代码风格要求\n"
-        "  - 命名约定\n"
-        "  - 文件组织规则\n"
-        "  - 错误处理模式\n"
-        "- **常见陷阱**：\n"
-        "  - 列出已知问题及解决方案\n"
-        "  - 易错点和注意事项\n"
-        "  - 技术债务和改进建议\n\n"
-        "直接输出 Markdown 内容，不要包含 ```markdown 代码块包裹。\n"
-        "记住：这是文档正文，不是生成报告！"
+        "1. **主动探索**：使用 Read/Grep/Glob 工具深入读取文件\n"
+        "2. **提取代码**：从关键文件中提取 10-30 行代码片段\n"
+        "3. **嵌入文档**：将代码片段嵌入到对应章节中\n"
+        "4. **添加说明**：为每个代码片段添加简短说明\n\n"
+        "## 输出格式示例\n\n"
+        "### 核心模块：Orchestrator\n\n"
+        "`opd/engine/orchestrator.py:50-80` 实现了中央协调器：\n\n"
+        "```python\n"
+        "class Orchestrator:\n"
+        "    def __init__(self, registry):\n"
+        "        self._registry = registry\n"
+        "        self._state_machine = StateMachine()\n"
+        "        # ...\n"
+        "```\n\n"
+        "协调器负责：\n"
+        "- 管理 Story 生命周期\n"
+        "- 协调 Capabilities\n"
+        "- 发布/订阅 AI 消息\n\n"
+        "## 必须包含的章节\n\n"
+        "- 项目概述（3-5 段详细说明）\n"
+        "- 技术栈（带版本号）\n"
+        "- 常用命令（完整示例 + 参数说明）\n"
+        "- 项目架构（带代码片段）\n"
+        "- 关键目录和文件（带代码片段）\n"
+        "- 数据模型（带字段说明）\n"
+        "- API 端点（带请求/响应示例）\n"
+        "- 编码规范（带代码示例）\n"
+        "- 常见陷阱（带解决方案）\n\n"
+        "直接输出 Markdown，不要用 ```markdown 包裹。"
     )
 
     parts = []
@@ -594,51 +573,55 @@ async def _ai_generate_claude_md(
                 await publish({"type": "assistant", "content": content})
 
     result = "\n".join(collected).strip()
+
+    # Verification: check if result contains code blocks
+    if result and "```" not in result:
+        logger.warning(
+            "Generated CLAUDE.md contains no code blocks, may be low quality. "
+            "Consider regenerating with more explicit instructions."
+        )
+
     return result if result else _fallback_claude_md(project, source_context)
 
 
 def _is_conversational_content(text: str) -> bool:
-    """Check if text is conversational rather than documentation.
+    """Check if text is purely conversational (should be filtered).
 
-    Returns True if the text is purely conversational (should be filtered).
-    Returns False if the text contains documentation content (should be kept).
+    Returns True only if text is PURELY conversational with no useful content.
+    Returns False if text contains code, markdown structure, or substantial content.
     """
     text_stripped = text.strip()
     if not text_stripped:
         return True
 
+    # If text contains code blocks, keep it
+    if "```" in text_stripped:
+        return False
+
+    # If text contains markdown structure, keep it
+    if any(text_stripped.startswith(marker) for marker in ["#", "-", "*", "1.", "2."]):
+        return False
+
+    # If text is long enough (>200 chars), likely contains useful content
+    if len(text_stripped) > 200:
+        return False
+
     # Check first 200 chars for conversational patterns
     text_head = text_stripped[:200]
 
-    # Patterns that indicate conversational content or meta-information
-    conversational_patterns = [
-        # Chinese patterns - conversational
-        "我将探索", "我将读取", "我将生成", "我将创建", "我将分析",
-        "现在我", "让我", "首先我", "接下来我", "然后我",
-        "完成！我", "我已经", "我成功", "我看到",
-        "好的，", "明白了", "收到", "了解",
-        # Chinese patterns - meta-information
-        "已为", "已生成", "已保存", "文档已", "包含：",
-        "生成完整的", "生成报告",
-        # English patterns
-        "I will explore", "I will read", "I will generate", "I will create",
-        "Let me", "Now I", "First I", "I'll analyze",
-        "Done! I", "I have successfully", "I've completed",
-        "Generated complete", "Document saved",
+    # Pure conversational patterns (no mixed content)
+    pure_conversational = [
+        "我将探索", "我将读取", "我将生成", "我将创建",
+        "让我", "现在我", "首先我",
+        "已为", "已生成", "已保存", "文档已",
+        "I will explore", "I will read", "Let me",
     ]
 
-    # If text starts with conversational pattern, it's likely pure conversation
-    for pattern in conversational_patterns:
-        if text_head.startswith(pattern) or text_head.startswith(pattern.lower()):
+    # Only filter if it starts with pure conversational pattern AND is short
+    for pattern in pure_conversational:
+        if text_head.startswith(pattern) and len(text_stripped) < 100:
             return True
 
-    # If text is very short and contains conversational words, filter it
-    if len(text_stripped) < 50:
-        conversational_words = ["我将", "让我", "现在", "完成", "I will", "Let me"]
-        if any(word in text_head for word in conversational_words):
-            return True
-
-    # Otherwise, keep it (might contain documentation)
     return False
 
 
@@ -720,18 +703,19 @@ async def _ai_incremental_update_claude_md(
     """Call AI to incrementally update CLAUDE.md based on merge diff."""
     system_prompt = (
         "你是一个资深工程师。根据最近一次合并的代码变更，增量更新项目的 CLAUDE.md 文件。\n\n"
-        "重要：\n"
-        "- 你正在更新当前项目的文档\n"
-        "- 只关注当前工作区的代码变更\n"
-        "- 不要引用或提及其他项目的信息\n"
-        "- 直接输出文档内容，不要输出你的思考过程或对话内容\n"
-        "- 不要使用「我将...」「现在我...」「完成！我已经...」等表述\n\n"
-        "规则：\n"
+        "## 核心要求\n\n"
+        "**这是文档更新，不是报告！**\n"
+        "- 如果变更涉及新功能，添加代码片段（10-30 行）\n"
+        "- 使用 Read 工具提取真实代码，不要写摘要\n"
+        "- 保持与现有文档相同的详细程度\n"
+        "- 不要输出元信息（「已更新...」「包含...」）\n\n"
+        "## 更新规则\n\n"
         "- 只修改受变更影响的部分\n"
         "- 保留现有内容中仍然准确的部分\n"
-        "- 如果变更引入了新模块/API/配置，添加相应说明\n"
+        "- 如果变更引入了新模块/API/配置，添加相应说明和代码示例\n"
         "- 如果变更删除或重命名了内容，更新对应描述\n"
-        "- 直接输出完整的 CLAUDE.md 内容，不要用 ```markdown 包裹"
+        "- 直接输出完整的 CLAUDE.md 内容，不要用 ```markdown 包裹\n\n"
+        "直接输出 Markdown，不要输出思考过程。"
     )
     user_prompt = f"## 现有 CLAUDE.md\n{existing}\n\n## 最近合并的变更\n{diff_summary}"
 
@@ -744,4 +728,13 @@ async def _ai_incremental_update_claude_md(
                 continue
             collected.append(content)
 
-    return "\n".join(collected).strip() if collected else existing
+    result = "\n".join(collected).strip()
+
+    # Verification: check if result still contains code blocks
+    if result and "```" not in result and "```" in existing:
+        logger.warning(
+            "Updated CLAUDE.md lost code blocks during incremental update. "
+            "Consider full regeneration."
+        )
+
+    return result if result else existing

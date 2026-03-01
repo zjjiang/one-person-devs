@@ -364,3 +364,77 @@ class TestUpdateProjectRequest:
         assert req.repo_url is None
         assert req.workspace_dir is None
         assert req.capabilities is None
+
+
+# ── _is_conversational_content ──
+
+
+class TestIsConversationalContent:
+    def test_empty_string_is_conversational(self):
+        from opd.api.projects import _is_conversational_content
+
+        assert _is_conversational_content("") is True
+        assert _is_conversational_content("   ") is True
+
+    def test_code_blocks_are_not_conversational(self):
+        from opd.api.projects import _is_conversational_content
+
+        # Text with code blocks should be kept
+        text_with_code = """
+        Here is the implementation:
+
+        ```python
+        def foo():
+            return 42
+        ```
+        """
+        assert _is_conversational_content(text_with_code) is False
+
+    def test_markdown_structure_is_not_conversational(self):
+        from opd.api.projects import _is_conversational_content
+
+        # Text starting with markdown markers should be kept
+        assert _is_conversational_content("# Title") is False
+        assert _is_conversational_content("## Subtitle") is False
+        assert _is_conversational_content("- List item") is False
+        assert _is_conversational_content("* Another list") is False
+        assert _is_conversational_content("1. Numbered") is False
+
+    def test_long_text_is_not_conversational(self):
+        from opd.api.projects import _is_conversational_content
+
+        # Text longer than 200 chars should be kept
+        long_text = "a" * 201
+        assert _is_conversational_content(long_text) is False
+
+    def test_pure_conversational_short_text_is_filtered(self):
+        from opd.api.projects import _is_conversational_content
+
+        # Short text starting with conversational patterns should be filtered
+        assert _is_conversational_content("我将探索代码库") is True
+        assert _is_conversational_content("让我读取文件") is True
+        assert _is_conversational_content("现在我开始分析") is True
+        assert _is_conversational_content("I will explore the codebase") is True
+        assert _is_conversational_content("Let me read the file") is True
+
+    def test_conversational_with_content_is_kept(self):
+        from opd.api.projects import _is_conversational_content
+
+        # Conversational start but with substantial content should be kept
+        text = "我将探索代码库。" + "这是一个详细的说明。" * 20
+        assert _is_conversational_content(text) is False
+
+    def test_mixed_content_with_code_is_kept(self):
+        from opd.api.projects import _is_conversational_content
+
+        # Mixed conversational + code should be kept
+        mixed = """
+        我将读取核心模块。以下是实现：
+
+        ```python
+        class Orchestrator:
+            pass
+        ```
+        """
+        assert _is_conversational_content(mixed) is False
+
