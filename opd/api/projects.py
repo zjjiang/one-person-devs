@@ -500,6 +500,10 @@ async def _ai_generate_claude_md(
     system_prompt = (
         "你是一个资深工程师。根据项目的源码结构和关键文件内容，"
         "生成一份 CLAUDE.md 文件，供 AI 编码助手理解项目上下文。\n\n"
+        "重要：\n"
+        "- 你当前正在为一个独立的项目生成文档\n"
+        "- 只关注当前工作区的代码和文件\n"
+        "- 不要引用或提及其他项目的信息\n\n"
         "CLAUDE.md 应包含：\n"
         "- 项目概述（一句话描述）\n"
         "- 技术栈\n"
@@ -511,6 +515,7 @@ async def _ai_generate_claude_md(
     )
 
     parts = []
+    parts.append(f"## 当前项目：{project.name}")
     if project.description:
         parts.append(f"## 项目描述\n{project.description}")
     if project.tech_stack:
@@ -612,6 +617,10 @@ async def _ai_incremental_update_claude_md(
     """Call AI to incrementally update CLAUDE.md based on merge diff."""
     system_prompt = (
         "你是一个资深工程师。根据最近一次合并的代码变更，增量更新项目的 CLAUDE.md 文件。\n\n"
+        "重要：\n"
+        "- 你正在更新当前项目的文档\n"
+        "- 只关注当前工作区的代码变更\n"
+        "- 不要引用或提及其他项目的信息\n\n"
         "规则：\n"
         "- 只修改受变更影响的部分\n"
         "- 保留现有内容中仍然准确的部分\n"
