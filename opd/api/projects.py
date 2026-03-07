@@ -153,7 +153,7 @@ async def create_project(req: CreateProjectRequest, db: AsyncSession = Depends(g
         description=req.description or "",
         tech_stack=req.tech_stack or "",
         architecture=req.architecture or "",
-        workspace_dir=req.workspace_dir or "",
+        workspace_dir=(req.workspace_dir or "").strip(),
         workspace_status=WorkspaceStatus.pending,
     )
     db.add(project)
@@ -270,7 +270,7 @@ async def update_project(
 
     # Handle workspace_dir change
     if req.workspace_dir is not None:
-        project.workspace_dir = req.workspace_dir
+        project.workspace_dir = req.workspace_dir.strip()
 
     # Handle capabilities toggle (enabled only, no provider/config override)
     if req.capabilities is not None:

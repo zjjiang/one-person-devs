@@ -35,7 +35,7 @@ def resolve_work_dir(project: Any) -> Path:
 
     Returns {workspace_dir}/{sanitized_project_name}.
     """
-    workspace_dir = getattr(project, "workspace_dir", "") or "./workspace"
+    workspace_dir = (getattr(project, "workspace_dir", "") or "./workspace").strip()
     project_name = _sanitize(project.name) or "project"
     return Path(workspace_dir).resolve() / project_name
 
