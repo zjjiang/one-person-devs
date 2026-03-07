@@ -127,6 +127,13 @@ export default function ProjectDetail() {
             同步上下文
           </Button>
           <Button
+            icon={<ReloadOutlined />}
+            onClick={handleInitWorkspace}
+            disabled={syncing}
+          >
+            初始化工作区
+          </Button>
+          <Button
             icon={<EditOutlined />}
             onClick={() => navigate(`/projects/${id}/edit`)}
           >
@@ -192,17 +199,6 @@ export default function ProjectDetail() {
               >
                 {project.workspace_error}
               </Typography.Text>
-            )}
-            {(project.workspace_status === "error" ||
-              project.workspace_status === "pending") && (
-              <Button
-                size="small"
-                icon={<ReloadOutlined />}
-                style={{ marginLeft: 8 }}
-                onClick={handleInitWorkspace}
-              >
-                重新初始化
-              </Button>
             )}
           </Descriptions.Item>
         </Descriptions>
