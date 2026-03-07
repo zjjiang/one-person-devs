@@ -215,6 +215,7 @@ async def get_project(project_id: int, db: AsyncSession = Depends(get_db),
         "tech_stack": project.tech_stack,
         "architecture": project.architecture,
         "workspace_dir": project.workspace_dir,
+        "workspace_path": str(resolve_work_dir(project)),
         "workspace_status": project.workspace_status.value,
         "workspace_error": project.workspace_error,
         "rules": [

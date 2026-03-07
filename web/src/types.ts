@@ -43,6 +43,7 @@ export interface Project {
   tech_stack: string;
   architecture: string;
   workspace_dir: string;
+  workspace_path: string;
   workspace_status: "pending" | "cloning" | "ready" | "error";
   workspace_error: string;
   rules: Rule[];

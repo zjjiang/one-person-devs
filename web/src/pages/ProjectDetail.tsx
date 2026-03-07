@@ -176,6 +176,15 @@ export default function ProjectDetail() {
               {wsStatusConfig[project.workspace_status]?.label ||
                 project.workspace_status}
             </Tag>
+            {project.workspace_path && (
+              <Typography.Text
+                code
+                copyable
+                style={{ marginLeft: 8, fontSize: 12 }}
+              >
+                {project.workspace_path}
+              </Typography.Text>
+            )}
             {project.workspace_status === "error" && (
               <Typography.Text
                 type="danger"
