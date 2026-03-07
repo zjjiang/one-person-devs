@@ -26,9 +26,7 @@ from opd.db.session import get_session_factory
 from opd.engine.notify import send_notification
 from opd.engine.orchestrator import Orchestrator
 from opd.engine.workspace import delete_doc, discard_branch, pull_main
-from opd.engine.workspace import get_latest_merge_diff, commit_and_push_file, resolve_work_dir
 
-from opd.api.projects import _ai_incremental_update_claude_md
 from opd.models.schemas import IterateRequest, RollbackRequest
 
 logger = logging.getLogger(__name__)
@@ -313,35 +311,6 @@ async def merge_story_pr(
     try:
         async with orch.get_workspace_lock(story.project_id):
             await pull_main(story.project)
-
-            # Incrementally update CLAUDE.md (synchronous, within lock)
-            try:
-                diff_summary = await get_latest_merge_diff(story.project)
-                if diff_summary:
-                    work_dir = resolve_work_dir(story.project)
-                    claude_md_path = work_dir / "CLAUDE.md"
-                    if claude_md_path.is_file():
-                        existing = claude_md_path.read_text(encoding="utf-8")
-                        ai_cap = registry.get("ai")
-                        if ai_cap:
-                            updated = await _ai_incremental_update_claude_md(
-                                ai_cap, diff_summary, existing, str(work_dir),
-                            )
-                            if updated and updated != existing:
-                                await commit_and_push_file(
-                                    story.project, "CLAUDE.md",
-                                    "chore: incremental update CLAUDE.md after merge",
-                                    content=updated,
-                                )
-                                logger.info(
-                                    "Incremental CLAUDE.md update for project %s",
-                                    story.project_id,
-                                )
-            except Exception:
-                logger.warning(
-                    "Incremental CLAUDE.md update failed for project %s",
-                    story.project_id, exc_info=True,
-                )
     except Exception:
         logger.warning("pull_main failed after merge for story %s", story_id, exc_info=True)
 

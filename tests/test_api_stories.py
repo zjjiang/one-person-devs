@@ -54,15 +54,19 @@ async def story_db():
 
 class TestCreateStory:
     @patch("opd.api.stories._start_ai_stage")
-    async def test_create_ok(self, mock_start, story_db):
+    async def test_create_ok(self, mock_start, story_db, tmp_path):
         from opd.api.stories import create_story
         from opd.models.schemas import CreateStoryRequest
+
+        # Create CLAUDE.md in tmp_path
+        (tmp_path / "CLAUDE.md").write_text("# Test")
 
         orch = MagicMock()
         async with story_db() as db:
             async with db.begin():
                 req = CreateStoryRequest(title="Login", raw_input="Build login page")
-                result = await create_story(1, req, db, orch)
+                with patch("opd.api.stories.resolve_work_dir", return_value=tmp_path):
+                    result = await create_story(1, req, db, orch)
                 assert result["status"] == "preparing"
                 assert result["id"] is not None
                 mock_start.assert_called_once()

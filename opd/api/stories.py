@@ -19,17 +19,19 @@ from opd.db.models import (
     AIMessageRole,
     Clarification,
     NotificationType,
+    Project,
     Round,
     RoundStatus,
     Story,
     StoryStatus,
+    WorkspaceStatus,
 )
 from opd.db.session import get_session_factory
 from opd.engine.hashing import should_skip_ai
 from opd.engine.notify import send_notification
 from opd.engine.orchestrator import Orchestrator
 from opd.engine.state_machine import ensure_status_value
-from opd.engine.workspace import read_doc, write_doc
+from opd.engine.workspace import read_doc, resolve_work_dir, write_doc
 from opd.models.schemas import (
     AnswerRequest,
     ChatRequest,
@@ -47,6 +49,18 @@ async def create_story(
     project_id: int, req: CreateStoryRequest, db: AsyncSession = Depends(get_db),
     orch: Orchestrator = Depends(get_orch),
 ):
+    # Preflight: workspace must be ready
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    if project.workspace_status != WorkspaceStatus.ready:
+        raise HTTPException(status_code=400, detail="工作区未就绪，请先初始化工作区")
+    if not (resolve_work_dir(project) / "CLAUDE.md").is_file():
+        raise HTTPException(
+            status_code=400,
+            detail="工作区中缺少 CLAUDE.md，请先在工作区目录下执行 claude /init 生成",
+        )
+
     story = Story(
         project_id=project_id,
         title=req.title,

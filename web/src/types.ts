@@ -44,6 +44,7 @@ export interface Project {
   architecture: string;
   workspace_dir: string;
   workspace_path: string;
+  claude_md_ready: boolean;
   workspace_status: "pending" | "cloning" | "ready" | "error";
   workspace_error: string;
   rules: Rule[];

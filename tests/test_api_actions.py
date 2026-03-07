@@ -290,10 +290,9 @@ class TestMergeStoryPR:
     @patch("opd.api.stories_actions.send_notification", new_callable=AsyncMock)
     @patch("opd.api.stories_actions.get_session_factory", return_value=MagicMock())
     @patch("opd.api.stories_actions._get_site_url", return_value="http://localhost:5173")
-    @patch("opd.api.stories_actions.get_latest_merge_diff", new_callable=AsyncMock, return_value=None)
     @patch("opd.api.stories_actions.pull_main", new_callable=AsyncMock)
     @patch("opd.api.stories_actions._build_project_registry")
-    async def test_merge_ok(self, mock_registry, mock_pull, mock_diff,
+    async def test_merge_ok(self, mock_registry, mock_pull,
                             mock_site_url, mock_sf, mock_notify, merge_db):
         from opd.api.stories_actions import merge_story_pr
 

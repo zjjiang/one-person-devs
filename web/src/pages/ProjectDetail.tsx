@@ -12,6 +12,7 @@ import {
   Breadcrumb,
   Drawer,
   FloatButton,
+  Tooltip,
 } from "antd";
 import {
   PlusOutlined,
@@ -131,7 +132,7 @@ export default function ProjectDetail() {
             loading={syncing}
             disabled={project.workspace_status !== "ready"}
           >
-            同步上下文
+            同步代码
           </Button>
           <Button
             icon={<EditOutlined />}
@@ -139,13 +140,26 @@ export default function ProjectDetail() {
           >
             编辑
           </Button>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => navigate(`/projects/${id}/stories/new`)}
+          <Tooltip
+            title={
+              project.workspace_status !== "ready"
+                ? "请先初始化工作区"
+                : !project.claude_md_ready
+                  ? "请先在工作区目录下执行 claude /init 生成 CLAUDE.md"
+                  : undefined
+            }
           >
-            新建 Story
-          </Button>
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => navigate(`/projects/${id}/stories/new`)}
+              disabled={
+                project.workspace_status !== "ready" || !project.claude_md_ready
+              }
+            >
+              新建 Story
+            </Button>
+          </Tooltip>
         </Space>
       </Space>
 
@@ -199,6 +213,13 @@ export default function ProjectDetail() {
               >
                 {project.workspace_error}
               </Typography.Text>
+            )}
+          </Descriptions.Item>
+          <Descriptions.Item label="CLAUDE.md">
+            {project.claude_md_ready ? (
+              <Tag color="success">已就绪</Tag>
+            ) : (
+              <Tag color="warning">未生成</Tag>
             )}
           </Descriptions.Item>
         </Descriptions>
