@@ -119,19 +119,19 @@ export default function ProjectDetail() {
         </Typography.Title>
         <Space>
           <Button
+            icon={<ReloadOutlined />}
+            onClick={handleInitWorkspace}
+            disabled={syncing}
+          >
+            初始化工作区
+          </Button>
+          <Button
             icon={<SyncOutlined spin={syncing} />}
             onClick={handleSyncContext}
             loading={syncing}
             disabled={project.workspace_status !== "ready"}
           >
             同步上下文
-          </Button>
-          <Button
-            icon={<ReloadOutlined />}
-            onClick={handleInitWorkspace}
-            disabled={syncing}
-          >
-            初始化工作区
           </Button>
           <Button
             icon={<EditOutlined />}
