@@ -36,6 +36,9 @@ ai = [
     "claude-code-sdk>=0.0.20",
 ]
 
+[tool.setuptools.packages.find]
+include = ["opd*"]
+
 [project.scripts]
 opd = "opd.main:cli"
 

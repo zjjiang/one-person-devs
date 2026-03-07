@@ -503,85 +503,88 @@ async def _ai_generate_claude_md(
     ai_cap, project: Project, source_context: str, existing: str,
     *, publish=None,
 ) -> str:
-    """Call AI to generate a comprehensive CLAUDE.md."""
+    """Generate CLAUDE.md using programmatic extraction + AI module descriptions.
 
-    system_prompt = (
-        "你是一个资深工程师。你的任务是生成一份**详细、可操作**的 CLAUDE.md 文档。\n\n"
-        "## 核心要求\n\n"
-        "**这是文档，不是报告！**\n"
-        "- 不要只列出标题和大纲\n"
-        "- 每个章节必须包含实际代码片段（10-30 行）\n"
-        "- 使用 Read 工具提取真实代码，不要写摘要\n"
-        "- 所有引用必须包含文件路径和行号\n"
-        "- 不要输出元信息（「已生成...」「包含...」）\n\n"
-        "## 工作流程\n\n"
-        "1. **主动探索**：使用 Read/Grep/Glob 工具深入读取文件\n"
-        "2. **提取代码**：从关键文件中提取 10-30 行代码片段\n"
-        "3. **嵌入文档**：将代码片段嵌入到对应章节中\n"
-        "4. **添加说明**：为每个代码片段添加简短说明\n\n"
-        "## 输出格式示例\n\n"
-        "### 核心模块：Orchestrator\n\n"
-        "`opd/engine/orchestrator.py:50-80` 实现了中央协调器：\n\n"
-        "```python\n"
-        "class Orchestrator:\n"
-        "    def __init__(self, registry):\n"
-        "        self._registry = registry\n"
-        "        self._state_machine = StateMachine()\n"
-        "        # ...\n"
-        "```\n\n"
-        "协调器负责：\n"
-        "- 管理 Story 生命周期\n"
-        "- 协调 Capabilities\n"
-        "- 发布/订阅 AI 消息\n\n"
-        "## 必须包含的章节\n\n"
-        "- 项目概述（3-5 段详细说明）\n"
-        "- 技术栈（带版本号）\n"
-        "- 常用命令（完整示例 + 参数说明）\n"
-        "- 项目架构（带代码片段）\n"
-        "- 关键目录和文件（带代码片段）\n"
-        "- 数据模型（带字段说明）\n"
-        "- API 端点（带请求/响应示例）\n"
-        "- 编码规范（带代码示例）\n"
-        "- 常见陷阱（带解决方案）\n\n"
-        "直接输出 Markdown，不要用 ```markdown 包裹。"
+    Three-step approach:
+    1. Programmatic code extraction (AST, zero AI cost)
+    2. Per-module AI description generation (focused, max_turns=8 each)
+    3. Programmatic assembly (deterministic format)
+    """
+    from opd.engine.memory.assembler import (
+        assemble_claude_md,
+        build_directory_tree,
+        extract_commands,
+    )
+    from opd.engine.memory.extractor import extract_key_snippets
+    from opd.engine.memory.generator import generate_module_description, group_snippets_by_module
+
+    work_dir = resolve_work_dir(project)
+
+    # --- Step 1: Programmatic extraction (no AI) ---
+    if publish:
+        await publish({"type": "system", "content": "正在提取项目代码片段..."})
+
+    code_snippets = extract_key_snippets(work_dir, max_snippets=30)
+    directory_tree = build_directory_tree(work_dir, max_depth=4)
+    commands = extract_commands(work_dir)
+
+    snippet_count = len(code_snippets)
+    if publish:
+        await publish({
+            "type": "system",
+            "content": f"提取到 {snippet_count} 个代码片段，正在生成模块文档...",
+        })
+
+    if not code_snippets:
+        logger.warning("No code snippets extracted for project %s", project.id)
+        return _fallback_claude_md(project, source_context)
+
+    # --- Step 2: Per-module AI descriptions ---
+    modules = group_snippets_by_module(code_snippets)
+
+    for category, module_doc in modules.items():
+        if publish:
+            await publish({
+                "type": "system",
+                "content": f"正在生成模块文档：{module_doc.name}...",
+            })
+        description = await generate_module_description(
+            ai_cap, module_doc.name, module_doc.snippets, str(work_dir),
+        )
+        module_doc.description = description
+        if publish and description:
+            # Show a preview of the generated description
+            preview = description[:200] + "..." if len(description) > 200 else description
+            await publish({"type": "assistant", "content": f"**{module_doc.name}**: {preview}"})
+
+    # --- Step 3: Programmatic assembly ---
+    if publish:
+        await publish({"type": "system", "content": "正在组装 CLAUDE.md..."})
+
+    result = assemble_claude_md(
+        project_name=project.name,
+        project_desc=project.description or "",
+        tech_stack=project.tech_stack or "",
+        directory_tree=directory_tree,
+        modules=modules,
+        commands=commands,
     )
 
-    parts = []
-    parts.append(f"## 当前项目：{project.name}")
-    if project.description:
-        parts.append(f"## 项目描述\n{project.description}")
-    if project.tech_stack:
-        parts.append(f"## 技术栈\n{project.tech_stack}")
-    if project.architecture:
-        parts.append(f"## 架构\n{project.architecture}")
-    parts.append(source_context)
-    if existing:
-        parts.append(f"## 现有 CLAUDE.md（供参考，可保留有价值的内容）\n{existing}")
-
-    user_prompt = "\n\n".join(parts)
-
-    work_dir = str(resolve_work_dir(project))
-    collected: list[str] = []
-    async for msg in ai_cap.provider.plan(system_prompt, user_prompt, work_dir, max_turns=50):
-        if msg.get("type") == "assistant" and msg.get("content"):
-            content = msg["content"]
-            # Filter out conversational content
-            if _is_conversational_content(content):
-                continue
-            collected.append(content)
-            if publish:
-                await publish({"type": "assistant", "content": content})
-
-    result = "\n".join(collected).strip()
-
-    # Verification: check if result contains code blocks
-    if result and "```" not in result:
+    # Verification
+    code_block_count = result.count("```")
+    if code_block_count < 2:
         logger.warning(
-            "Generated CLAUDE.md contains no code blocks, may be low quality. "
-            "Consider regenerating with more explicit instructions."
+            "Generated CLAUDE.md has only %d code fence markers for project %s",
+            code_block_count, project.id,
         )
 
-    return result if result else _fallback_claude_md(project, source_context)
+    if publish:
+        await publish({
+            "type": "system",
+            "content": f"CLAUDE.md 生成完成：{snippet_count} 个代码片段，{len(modules)} 个模块",
+        })
+
+    return result
 
 
 def _is_conversational_content(text: str) -> bool:
