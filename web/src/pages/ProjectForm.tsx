@@ -23,6 +23,7 @@ import {
   UnlockOutlined,
   PlusOutlined,
   DeleteOutlined,
+  ReloadOutlined,
 } from "@ant-design/icons";
 import { useNavigate, useParams } from "react-router-dom";
 import {
@@ -30,6 +31,7 @@ import {
   getProject,
   updateProject,
   getWorkspaceStatus,
+  initWorkspace,
   verifyRepo,
 } from "../api/projects";
 import {
@@ -155,6 +157,19 @@ export default function ProjectForm() {
         navigate(`/projects/${projectId}`);
       }
     }, 2000);
+  };
+
+  const handleInitWorkspace = async () => {
+    setLoading(true);
+    try {
+      await initWorkspace(Number(id));
+      message.success("工作区初始化已触发");
+      setLoading(false);
+      pollWorkspace(Number(id));
+    } catch {
+      message.error("初始化失败");
+      setLoading(false);
+    }
   };
 
   const onFinish = async (values: Record<string, string>) => {
@@ -346,6 +361,17 @@ export default function ProjectForm() {
                 disabled={isEdit && workspaceLocked}
               />
             </Form.Item>
+            {isEdit && (
+              <Button
+                size="small"
+                icon={<ReloadOutlined />}
+                onClick={handleInitWorkspace}
+                loading={cloneStatus.polling}
+                style={{ marginTop: -16, marginBottom: 8 }}
+              >
+                重新初始化工作区
+              </Button>
+            )}
           </Col>
         </Row>
 
