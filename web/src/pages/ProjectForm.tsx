@@ -361,17 +361,6 @@ export default function ProjectForm() {
                 disabled={isEdit && workspaceLocked}
               />
             </Form.Item>
-            {isEdit && (
-              <Button
-                size="small"
-                icon={<ReloadOutlined />}
-                onClick={handleInitWorkspace}
-                loading={cloneStatus.polling}
-                style={{ marginTop: -16, marginBottom: 8 }}
-              >
-                重新初始化工作区
-              </Button>
-            )}
           </Col>
         </Row>
 
@@ -525,6 +514,15 @@ export default function ProjectForm() {
             <Button onClick={() => navigate(-1)} disabled={cloneStatus.polling}>
               取消
             </Button>
+            {isEdit && (
+              <Button
+                icon={<ReloadOutlined />}
+                onClick={handleInitWorkspace}
+                loading={cloneStatus.polling}
+              >
+                重新初始化工作区
+              </Button>
+            )}
           </Space>
         </Form.Item>
       </Form>
