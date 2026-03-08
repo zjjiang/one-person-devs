@@ -17,14 +17,13 @@ import {
 import {
   PlusOutlined,
   EditOutlined,
-  ReloadOutlined,
   SyncOutlined,
   HomeOutlined,
   LoadingOutlined,
   CodeOutlined,
 } from "@ant-design/icons";
 import { useNavigate, useParams, Link } from "react-router-dom";
-import { getProject, initWorkspace, syncContext } from "../api/projects";
+import { getProject, syncContext } from "../api/projects";
 import type { Project } from "../types";
 import { STAGE_LABELS } from "../types";
 import SyncConsole from "../components/SyncConsole";
@@ -59,23 +58,13 @@ export default function ProjectDetail() {
     refresh();
   }, [id]);
 
-  const handleInitWorkspace = async () => {
-    try {
-      await initWorkspace(Number(id));
-      message.success("工作区初始化已触发");
-      refresh();
-    } catch {
-      message.error("操作失败");
-    }
-  };
-
-  const handleSyncContext = async () => {
+  const handleSyncWorkspace = async () => {
     setSyncing(true);
     setDrawerOpen(true);
     try {
       await syncContext(Number(id));
     } catch {
-      message.error("同步上下文启动失败");
+      message.error("同步工作区失败");
       setSyncing(false);
     }
   };
@@ -120,19 +109,12 @@ export default function ProjectDetail() {
         </Typography.Title>
         <Space>
           <Button
-            icon={<ReloadOutlined />}
-            onClick={handleInitWorkspace}
-            disabled={syncing}
-          >
-            初始化工作区
-          </Button>
-          <Button
             icon={<SyncOutlined spin={syncing} />}
-            onClick={handleSyncContext}
+            onClick={handleSyncWorkspace}
             loading={syncing}
-            disabled={project.workspace_status !== "ready"}
+            disabled={project.workspace_status === "cloning"}
           >
-            同步代码
+            同步工作区
           </Button>
           <Button
             icon={<EditOutlined />}

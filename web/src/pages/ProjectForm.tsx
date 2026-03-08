@@ -31,7 +31,7 @@ import {
   getProject,
   updateProject,
   getWorkspaceStatus,
-  initWorkspace,
+  syncContext,
   verifyRepo,
 } from "../api/projects";
 import {
@@ -69,28 +69,38 @@ export default function ProjectForm() {
   const [workspaceLocked, setWorkspaceLocked] = useState(true);
   const [originalProject, setOriginalProject] = useState<Project | null>(null);
 
-  const catKey = (c: CatalogItem) => `${c.capability}/${c.provider}`;
+  const catKey = (c: CatalogItem) => String(c.id);
 
   useEffect(() => {
-    getCapabilityCatalog().then((data) => {
-      setCatalog(data);
-      if (!isEdit) {
-        // Default: select all enabled items from global config
-        setSelectedKeys(data.filter((c) => c.enabled).map(catKey));
-      }
-    });
+    const loadData = async () => {
+      const catalogData = await getCapabilityCatalog();
+      setCatalog(catalogData);
 
-    if (isEdit) {
-      getProject(Number(id)).then((p) => {
+      if (isEdit) {
+        const p = await getProject(Number(id));
         form.setFieldsValue(p);
         setOriginalProject(p);
-        // Load enabled capabilities as "cap/provider" keys
-        const enabled = (p.capability_configs || [])
-          .filter((c) => c.enabled)
-          .map((c) => `${c.capability}/${c.provider}`);
-        setSelectedKeys(enabled);
-      });
-    }
+        // Match project capabilities to catalog items by capability+provider
+        const enabledConfigs = (p.capability_configs || []).filter(
+          (c) => c.enabled,
+        );
+        const keys = enabledConfigs
+          .map((pc) => {
+            const match = catalogData.find(
+              (cat) =>
+                cat.capability === pc.capability &&
+                cat.provider === pc.provider,
+            );
+            return match ? catKey(match) : null;
+          })
+          .filter((k): k is string => k !== null);
+        setSelectedKeys(keys);
+      } else {
+        setSelectedKeys(catalogData.filter((c) => c.enabled).map(catKey));
+      }
+    };
+    loadData();
+
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
@@ -162,7 +172,7 @@ export default function ProjectForm() {
   const handleInitWorkspace = async () => {
     setLoading(true);
     try {
-      await initWorkspace(Number(id));
+      await syncContext(Number(id));
       message.success("工作区初始化已触发");
       setLoading(false);
       pollWorkspace(Number(id));

@@ -375,13 +375,13 @@ async def sync_context(
     db: AsyncSession = Depends(get_db),
     orch: Orchestrator = Depends(get_orch),
 ):
-    """Pull latest code from remote for the project workspace."""
+    """Sync workspace: pull latest if ready, clone if not."""
     result = await db.execute(select(Project).where(Project.id == project_id))
     project = result.scalar_one_or_none()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    if project.workspace_status != WorkspaceStatus.ready:
-        raise HTTPException(status_code=400, detail="工作区未就绪")
+    if project.workspace_status == WorkspaceStatus.cloning:
+        raise HTTPException(status_code=400, detail="工作区正在初始化中")
 
     task_key = f"project_sync_{project_id}"
     if orch.is_task_running(task_key):
@@ -417,7 +417,7 @@ async def sync_stream(
 
 
 def _launch_sync_context(project_id: int, orch: Orchestrator) -> None:
-    """Launch sync-context as a background task: pull latest code from remote."""
+    """Launch sync-context as a background task: pull or clone workspace."""
     task_key = f"project_sync_{project_id}"
 
     async def _run() -> None:
@@ -448,10 +448,27 @@ def _launch_sync_context(project_id: int, orch: Orchestrator) -> None:
                             "content": "代码同步完成",
                         }
                     else:
-                        done_event = {
-                            "type": "error",
-                            "content": "代码同步失败，请检查工作区状态",
-                        }
+                        # pull failed (directory missing, not a git repo, etc.) — fallback to clone
+                        await orch.publish(task_key, {
+                            "type": "system", "content": "拉取失败，正在重新克隆工作区...",
+                        })
+                        token = await _resolve_scm_token(session_factory)
+                        try:
+                            await clone_workspace(project, project.repo_url, token=token)
+                            project.workspace_status = WorkspaceStatus.ready
+                            project.workspace_error = ""
+                            done_event = {
+                                "type": "done",
+                                "content": "工作区重新克隆完成",
+                            }
+                        except Exception as clone_err:
+                            logger.exception("Clone fallback failed for project %s", project_id)
+                            project.workspace_status = WorkspaceStatus.error
+                            project.workspace_error = str(clone_err)
+                            done_event = {
+                                "type": "error",
+                                "content": f"克隆失败: {clone_err}",
+                            }
                     logger.info("Sync context for project %s: %s", project_id, ok)
         except Exception as e:
             logger.exception("Sync context failed for project %s", project_id)
