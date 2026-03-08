@@ -43,6 +43,7 @@ class GitHubProvider(SCMProvider):
         headers = {
             "Authorization": f"token {self._token}",
             "Accept": "application/vnd.github+json",
+            "User-Agent": "OPD/1.0",
         }
         repo_url = self.config.get("repo_url")
 

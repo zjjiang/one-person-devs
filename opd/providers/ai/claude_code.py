@@ -69,6 +69,7 @@ class ClaudeCodeProvider(AIProvider):
                 req.add_header("Authorization", f"Bearer {auth_token}")
                 req.add_header("Content-Type", "application/json")
                 req.add_header("anthropic-version", "2023-06-01")
+                req.add_header("User-Agent", "OPD/1.0")
                 await asyncio.to_thread(
                     urllib.request.urlopen, req, timeout=10
                 )
@@ -128,6 +129,13 @@ class ClaudeCodeProvider(AIProvider):
             return
 
         options = self._build_options(system_prompt, work_dir, max_turns)
+        logger.info(
+            "Invoking Claude Code SDK: model=%s, base_url=%s, has_token=%s, cwd=%s",
+            self._model,
+            self.config.get("base_url", ""),
+            bool(self.config.get("auth_token")),
+            work_dir or "(none)",
+        )
         try:
             async for msg in query(prompt=prompt, options=options):
                 if hasattr(msg, "content") and msg.content:

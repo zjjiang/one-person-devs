@@ -97,16 +97,27 @@ class PreflightResult:
 
 
 def build_capability_overrides(cap_configs) -> list[dict]:
-    """Build override dicts from ProjectCapabilityConfig records."""
-    return [
-        {
+    """Build override dicts from ProjectCapabilityConfig records.
+
+    When a project capability has a linked global_config (via global_config_id),
+    use the global config's settings as the base config, then layer any
+    project-level config_override on top.
+    """
+    result = []
+    for c in cap_configs:
+        # Start with global config if linked, then overlay project-level overrides
+        config = {}
+        if hasattr(c, "global_config") and c.global_config and c.global_config.config:
+            config = dict(c.global_config.config)
+        if c.config_override:
+            config.update(c.config_override)
+        result.append({
             "capability": c.capability,
             "enabled": c.enabled,
             "provider_override": c.provider_override,
-            "config_override": c.config_override,
-        }
-        for c in cap_configs
-    ]
+            "config_override": config or None,
+        })
+    return result
 
 
 class CapabilityRegistry:
@@ -264,7 +275,11 @@ class CapabilityRegistry:
         # so shallow copy is sufficient here
         new_reg._capabilities = dict(self._capabilities)
 
-        for pc in project_configs:
+        # Process disabled configs first, then enabled ones, so that
+        # enabled entries always take precedence for the same capability.
+        sorted_configs = sorted(project_configs, key=lambda pc: pc.get("enabled", True))
+
+        for pc in sorted_configs:
             cap_name = pc["capability"]
             if not pc.get("enabled", True):
                 new_reg._capabilities.pop(cap_name, None)

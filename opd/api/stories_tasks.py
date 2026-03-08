@@ -133,6 +133,7 @@ async def _build_project_registry(db, orch: Orchestrator, project_id: int):
     cap_result = await db.execute(
         select(ProjectCapabilityConfig)
         .where(ProjectCapabilityConfig.project_id == project_id)
+        .options(selectinload(ProjectCapabilityConfig.global_config))
     )
     cap_configs = cap_result.scalars().all()
     registry = orch.capabilities
