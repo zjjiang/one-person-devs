@@ -115,6 +115,10 @@ class ClaudeCodeProvider(AIProvider):
             env["ANTHROPIC_AUTH_TOKEN"] = self.config["auth_token"]
         if self.config.get("base_url"):
             env["ANTHROPIC_BASE_URL"] = self.config["base_url"]
+        # Clear CLAUDECODE to prevent "nested session" detection when OPD
+        # itself is launched from a Claude Code session (e.g. via restart.sh)
+        if os.environ.get("CLAUDECODE"):
+            env["CLAUDECODE"] = ""
         if env:
             opts["env"] = env
 
@@ -136,6 +140,13 @@ class ClaudeCodeProvider(AIProvider):
             bool(self.config.get("auth_token")),
             work_dir or "(none)",
         )
+
+        # Capture stderr via temp file (StringIO doesn't have fileno, uvloop needs real fd)
+        import tempfile
+        stderr_file = tempfile.SpooledTemporaryFile(max_size=64 * 1024, mode="w+")
+        options.extra_args = {"debug-to-stderr": None}
+        options.debug_stderr = stderr_file
+
         try:
             async for msg in query(prompt=prompt, options=options):
                 if hasattr(msg, "content") and msg.content:
@@ -149,8 +160,17 @@ class ClaudeCodeProvider(AIProvider):
                                 "input": getattr(block, "tool_input", ""),
                             }
         except Exception as e:
+            try:
+                stderr_file.seek(0)
+                stderr_output = stderr_file.read()
+                if stderr_output:
+                    logger.error("Claude Code CLI stderr:\n%s", stderr_output[-2000:])
+            except Exception:
+                pass
             logger.exception("Claude Code SDK error")
             yield {"type": "error", "content": str(e)}
+        finally:
+            stderr_file.close()
 
     async def prepare_prd(self, system_prompt: str,
                           user_prompt: str,

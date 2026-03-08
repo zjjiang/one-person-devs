@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 from collections.abc import AsyncIterator
 
@@ -67,6 +68,9 @@ class DuccProvider(AIProvider):
             opts["cwd"] = work_dir
         if max_turns is not None:
             opts["max_turns"] = max_turns
+        # Clear CLAUDECODE to prevent "nested session" detection
+        if os.environ.get("CLAUDECODE"):
+            opts["env"] = {"CLAUDECODE": ""}
         return ClaudeCodeOptions(**opts)
 
     async def _invoke_stream(self, prompt: str, system_prompt: str,
