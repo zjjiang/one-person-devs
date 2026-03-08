@@ -160,8 +160,8 @@ export default function ProjectDetail() {
                 {project.capability_configs
                   .filter((c) => c.enabled)
                   .map((c) => (
-                    <Tag key={c.capability} color="blue">
-                      {c.capability_label}
+                    <Tag key={c.global_config_id ?? c.capability} color="blue">
+                      {c.label || c.capability_label}
                       {c.provider_label ? ` · ${c.provider_label}` : ""}
                     </Tag>
                   ))}

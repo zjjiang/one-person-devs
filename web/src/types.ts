@@ -28,10 +28,12 @@ export interface StorySummary {
 }
 
 export interface CapabilityConfig {
+  global_config_id: number | null;
   capability: string;
   capability_label: string;
   provider: string;
   provider_label: string;
+  label: string | null;
   enabled: boolean;
 }
 

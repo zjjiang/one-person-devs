@@ -69,7 +69,7 @@ export default function ProjectForm() {
   const [workspaceLocked, setWorkspaceLocked] = useState(true);
   const [originalProject, setOriginalProject] = useState<Project | null>(null);
 
-  const catKey = (c: CatalogItem) => String(c.id);
+  const catKey = (c: CatalogItem) => c.label;
 
   useEffect(() => {
     const loadData = async () => {
@@ -80,17 +80,20 @@ export default function ProjectForm() {
         const p = await getProject(Number(id));
         form.setFieldsValue(p);
         setOriginalProject(p);
-        // Match project capabilities to catalog items by capability+provider
+        // Match project capabilities to catalog items by global_config_id or label
         const enabledConfigs = (p.capability_configs || []).filter(
           (c) => c.enabled,
         );
         const keys = enabledConfigs
           .map((pc) => {
-            const match = catalogData.find(
-              (cat) =>
-                cat.capability === pc.capability &&
-                cat.provider === pc.provider,
-            );
+            // Prefer matching by global_config_id
+            const match = pc.global_config_id
+              ? catalogData.find((cat) => cat.id === pc.global_config_id)
+              : catalogData.find(
+                  (cat) =>
+                    cat.capability === pc.capability &&
+                    cat.provider === pc.provider,
+                );
             return match ? catKey(match) : null;
           })
           .filter((k): k is string => k !== null);
@@ -205,6 +208,7 @@ export default function ProjectForm() {
         }
         // Send capability toggles: selected → enabled, rest → disabled
         data.capabilities = catalog.map((c) => ({
+          global_config_id: c.id,
           capability: c.capability,
           provider: c.provider,
           enabled: selectedKeys.includes(catKey(c)),

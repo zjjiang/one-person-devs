@@ -187,7 +187,9 @@ async def get_project(project_id: int, db: AsyncSession = Depends(get_db),
             selectinload(Project.rules),
             selectinload(Project.skills),
             selectinload(Project.stories),
-            selectinload(Project.capability_configs),
+            selectinload(Project.capability_configs).selectinload(
+                ProjectCapabilityConfig.global_config
+            ),
         )
     )
     project = result.scalar_one_or_none()
@@ -226,10 +228,12 @@ async def get_project(project_id: int, db: AsyncSession = Depends(get_db),
         ],
         "capability_configs": [
             {
+                "global_config_id": c.global_config_id,
                 "capability": c.capability,
                 "capability_label": _CAPABILITY_LABELS.get(c.capability, c.capability),
                 "provider": c.provider_override or "",
                 "provider_label": _PROVIDER_LABELS.get(c.provider_override or "", c.provider_override or ""),
+                "label": c.global_config.label if c.global_config else None,
                 "enabled": c.enabled,
             }
             for c in valid_caps
@@ -270,23 +274,37 @@ async def update_project(
     if req.workspace_dir is not None:
         project.workspace_dir = req.workspace_dir.strip()
 
-    # Handle capabilities toggle (enabled only, no provider/config override)
+    # Handle capabilities toggle
     if req.capabilities is not None:
         for toggle in req.capabilities:
-            cap_result = await db.execute(
-                select(ProjectCapabilityConfig).where(
-                    ProjectCapabilityConfig.project_id == project_id,
-                    ProjectCapabilityConfig.capability == toggle.capability,
+            existing = None
+            if toggle.global_config_id:
+                cap_result = await db.execute(
+                    select(ProjectCapabilityConfig).where(
+                        ProjectCapabilityConfig.project_id == project_id,
+                        ProjectCapabilityConfig.global_config_id == toggle.global_config_id,
+                    )
                 )
-            )
-            existing = cap_result.scalar_one_or_none()
+                existing = cap_result.scalar_one_or_none()
+            if not existing:
+                # Fallback: match by capability (for backwards compatibility)
+                cap_result = await db.execute(
+                    select(ProjectCapabilityConfig).where(
+                        ProjectCapabilityConfig.project_id == project_id,
+                        ProjectCapabilityConfig.capability == toggle.capability,
+                        ProjectCapabilityConfig.global_config_id.is_(None),
+                    )
+                )
+                existing = cap_result.scalar_one_or_none()
             if existing:
                 existing.enabled = toggle.enabled
                 existing.provider_override = toggle.provider or None
+                existing.global_config_id = toggle.global_config_id
                 existing.config_override = None
             else:
                 db.add(ProjectCapabilityConfig(
                     project_id=project_id,
+                    global_config_id=toggle.global_config_id,
                     capability=toggle.capability,
                     enabled=toggle.enabled,
                     provider_override=toggle.provider or None,

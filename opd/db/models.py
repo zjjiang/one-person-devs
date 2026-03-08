@@ -177,12 +177,16 @@ class ProjectCapabilityConfig(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), nullable=False)
+    global_config_id: Mapped[int | None] = mapped_column(
+        ForeignKey("global_capability_configs.id"), nullable=True
+    )
     capability: Mapped[str] = mapped_column(String(50), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     provider_override: Mapped[str | None] = mapped_column(String(100), nullable=True)
     config_override: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     project: Mapped[Project] = relationship(back_populates="capability_configs")
+    global_config: Mapped["GlobalCapabilityConfig | None"] = relationship()
 
 
 class GlobalCapabilityConfig(Base):

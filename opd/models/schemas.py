@@ -28,6 +28,7 @@ class CreateProjectRequest(BaseModel):
 
 
 class CapabilityToggle(BaseModel):
+    global_config_id: int | None = None
     capability: str
     provider: str = ""
     enabled: bool
