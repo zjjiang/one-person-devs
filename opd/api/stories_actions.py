@@ -25,7 +25,7 @@ from opd.db.models import (
 from opd.db.session import get_session_factory
 from opd.engine.notify import send_notification
 from opd.engine.orchestrator import Orchestrator
-from opd.engine.workspace import delete_doc, discard_branch, pull_main
+from opd.engine.workspace import delete_doc, discard_branch, pull_main, resolve_work_dir
 
 from opd.models.schemas import IterateRequest, RollbackRequest
 
@@ -330,3 +330,79 @@ async def merge_story_pr(
         logger.warning("Notification failed for merge story %s", story_id, exc_info=True)
 
     return {"id": story.id, "pr_number": open_pr.pr_number, "status": "merged"}
+
+
+@actions_router.post("/stories/{story_id}/create-pr")
+async def create_story_pr(
+    story_id: int,
+    db: AsyncSession = Depends(get_db),
+    orch: Orchestrator = Depends(get_orch),
+):
+    """Retry: commit, push, and create a PR for the story's active branch."""
+    result = await db.execute(
+        select(Story).where(Story.id == story_id).options(
+            selectinload(Story.project),
+            selectinload(Story.rounds).selectinload(Round.pull_requests),
+        )
+    )
+    story = result.scalar_one_or_none()
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+
+    # Find active round with a branch
+    active_round = next(
+        (r for r in story.rounds if r.status == RoundStatus.active), None,
+    )
+    if not active_round or not active_round.branch_name:
+        raise HTTPException(status_code=400, detail="没有可用的分支")
+
+    # Check if PR already exists
+    existing_pr = next(
+        (pr for pr in active_round.pull_requests if pr.status == PRStatus.open),
+        None,
+    )
+    if existing_pr:
+        raise HTTPException(
+            status_code=400,
+            detail=f"PR #{existing_pr.pr_number} 已存在",
+        )
+
+    registry = await _build_project_registry(db, orch, story.project_id)
+    scm_cap = registry.get("scm")
+    if not scm_cap:
+        raise HTTPException(status_code=400, detail="SCM 能力未配置")
+
+    branch = active_round.branch_name
+    work_dir = str(resolve_work_dir(story.project))
+
+    # Commit and push
+    try:
+        await scm_cap.provider.commit_and_push(
+            work_dir, branch, f"feat: {story.title} (story #{story.id})",
+        )
+    except Exception as e:
+        logger.exception("commit_and_push failed for story %s", story_id)
+        raise HTTPException(status_code=500, detail=f"Push 失败: {e}")
+
+    # Create PR
+    try:
+        pr_info = await scm_cap.provider.create_pull_request(
+            story.project.repo_url, branch,
+            title=f"[OPD] {story.title}",
+            body=f"Auto-created by OPD for Story #{story.id}",
+        )
+        db.add(PullRequest(
+            round_id=active_round.id,
+            pr_number=pr_info["pr_number"],
+            pr_url=pr_info["pr_url"],
+        ))
+        await db.flush()
+        logger.info("Created PR #%s for story %s", pr_info["pr_number"], story_id)
+        return {
+            "id": story.id,
+            "pr_number": pr_info["pr_number"],
+            "pr_url": pr_info["pr_url"],
+        }
+    except Exception as e:
+        logger.exception("create_pull_request failed for story %s", story_id)
+        raise HTTPException(status_code=500, detail=f"创建 PR 失败: {e}")

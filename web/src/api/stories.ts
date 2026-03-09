@@ -97,6 +97,12 @@ export const mergeStoryPR = (id: number) =>
     { method: "POST" },
   );
 
+export const createStoryPR = (id: number) =>
+  request<{ id: number; pr_number: number; pr_url: string }>(
+    `/api/stories/${id}/create-pr`,
+    { method: "POST" },
+  );
+
 export const getStoryDocDownloadUrl = (id: number, filename: string) =>
   `/api/stories/${id}/docs/${filename}/download`;
 

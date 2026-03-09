@@ -32,6 +32,7 @@ import {
   HomeOutlined,
   DownloadOutlined,
   UploadOutlined,
+  PullRequestOutlined,
 } from "@ant-design/icons";
 import { useParams, Link } from "react-router-dom";
 import {
@@ -45,6 +46,7 @@ import {
   saveStoryDoc,
   rollbackStory,
   mergeStoryPR,
+  createStoryPR,
   getStoryDocDownloadUrl,
   uploadStoryDoc,
 } from "../api/stories";
@@ -109,6 +111,7 @@ export default function StoryDetail() {
   >("chat");
   const [saving, setSaving] = useState(false);
   const [merging, setMerging] = useState(false);
+  const [creatingPR, setCreatingPR] = useState(false);
   const [iterateModal, setIterateModal] = useState<{
     open: boolean;
     action: "iterate" | "restart";
@@ -260,6 +263,19 @@ export default function StoryDetail() {
       message.error("合并失败");
     } finally {
       setMerging(false);
+    }
+  };
+
+  const handleCreatePR = async () => {
+    setCreatingPR(true);
+    try {
+      const res = await createStoryPR(story.id);
+      message.success(`PR #${res.pr_number} 已创建`);
+      refresh();
+    } catch {
+      message.error("创建 PR 失败");
+    } finally {
+      setCreatingPR(false);
     }
   };
 
@@ -434,6 +450,10 @@ export default function StoryDetail() {
     branchName && story.repo_url
       ? `${story.repo_url.replace(/\.git$/, "")}/tree/${branchName}`
       : null;
+  // Latest open PR for quick access
+  const latestOpenPR = story.rounds
+    .flatMap((r) => r.pull_requests)
+    .find((pr) => pr.status === "open");
 
   return (
     <div
@@ -500,6 +520,29 @@ export default function StoryDetail() {
                 {branchName}
               </span>
             ))}
+          {latestOpenPR ? (
+            <a
+              href={latestOpenPR.pr_url}
+              target="_blank"
+              rel="noreferrer"
+              style={{ fontSize: 12 }}
+            >
+              <PullRequestOutlined style={{ marginRight: 4 }} />
+              PR #{latestOpenPR.pr_number}
+            </a>
+          ) : (
+            branchName &&
+            (story.status === "verifying" || story.status === "coding") && (
+              <Button
+                size="small"
+                icon={<PullRequestOutlined />}
+                onClick={handleCreatePR}
+                loading={creatingPR}
+              >
+                创建 PR
+              </Button>
+            )
+          )}
         </Space>
         <Space>
           {(story.status === "verifying" || story.status === "coding") && (
