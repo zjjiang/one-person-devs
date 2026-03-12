@@ -20,14 +20,28 @@ STAGE_INPUT_MAP: dict[str, tuple[str, str, str, str]] = {
     "coding": ("detailed_design", "detailed_design.md", "coding_input_hash", "coding_report"),
 }
 
+# Light mode uses prd (briefing) as coding input instead of detailed_design
+LIGHT_STAGE_INPUT_MAP: dict[str, tuple[str, str, str, str]] = {
+    "coding": ("prd", "prd.md", "coding_input_hash", "coding_report"),
+}
 
-def get_stage_input_content(story: Any, project: Any, stage: str) -> str | None:
+
+def _get_input_map(mode: str = "full") -> dict[str, tuple[str, str, str, str]]:
+    """Return the stage input map for the given mode."""
+    if mode == "light":
+        return LIGHT_STAGE_INPUT_MAP
+    return STAGE_INPUT_MAP
+
+
+def get_stage_input_content(story: Any, project: Any, stage: str,
+                            mode: str = "full") -> str | None:
     """Read the input content for a given stage.
 
     Tries the doc file first, falls back to the DB field.
     Returns None if no input content is available.
     """
-    mapping = STAGE_INPUT_MAP.get(stage)
+    input_map = _get_input_map(mode)
+    mapping = input_map.get(stage)
     if not mapping:
         return None
     field, filename, _, _ = mapping
@@ -42,18 +56,21 @@ def get_stage_input_content(story: Any, project: Any, stage: str) -> str | None:
     return None
 
 
-def compute_stage_input_hash(story: Any, project: Any, stage: str) -> str | None:
+def compute_stage_input_hash(story: Any, project: Any, stage: str,
+                             mode: str = "full") -> str | None:
     """Compute the input hash for a stage. Returns None if no input available."""
-    content = get_stage_input_content(story, project, stage)
+    content = get_stage_input_content(story, project, stage, mode=mode)
     return compute_hash(content) if content else None
 
 
-def should_skip_ai(story: Any, project: Any, stage: str) -> bool:
+def should_skip_ai(story: Any, project: Any, stage: str,
+                   mode: str = "full") -> bool:
     """Check if AI generation can be skipped for a stage.
 
     Returns True if the stage already has output AND the input hasn't changed.
     """
-    mapping = STAGE_INPUT_MAP.get(stage)
+    input_map = _get_input_map(mode)
+    mapping = input_map.get(stage)
     if not mapping:
         return False
     _, _, hash_field, output_field = mapping
@@ -65,5 +82,5 @@ def should_skip_ai(story: Any, project: Any, stage: str) -> bool:
     if not stored_hash:
         return False
     # Compare current input hash with stored hash
-    current_hash = compute_stage_input_hash(story, project, stage)
+    current_hash = compute_stage_input_hash(story, project, stage, mode=mode)
     return current_hash == stored_hash

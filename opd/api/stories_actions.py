@@ -20,6 +20,7 @@ from opd.db.models import (
     RoundStatus,
     RoundType,
     Story,
+    StoryMode,
     StoryStatus,
 )
 from opd.db.session import get_session_factory
@@ -79,7 +80,8 @@ async def rollback_story(
 
     target = req.target_stage
     current = story.status.value if not isinstance(story.status, str) else story.status
-    doc_stages = ["preparing", "clarifying", "planning", "designing"]
+    is_light = getattr(story, "mode", None) == StoryMode.light
+    doc_stages = ["briefing"] if is_light else ["preparing", "clarifying", "planning", "designing"]
     if target not in doc_stages:
         raise HTTPException(status_code=400, detail=f"Invalid target stage: {target}")
     if doc_stages.index(target) >= doc_stages.index(current):
@@ -210,8 +212,10 @@ async def restart_story(story_id: int, req: IterateRequest | None = None,
         except Exception:
             logger.warning("Failed to discard branch %s", old_branch, exc_info=True)
 
-    # Create new round (no branch — goes back to designing)
+    # Create new round (no branch — goes back to designing or briefing)
     story.current_round += 1
+    is_light = getattr(story, "mode", None) == StoryMode.light
+    restart_target = StoryStatus.briefing if is_light else StoryStatus.designing
     new_round = Round(
         story_id=story.id,
         round_number=story.current_round,
@@ -219,14 +223,14 @@ async def restart_story(story_id: int, req: IterateRequest | None = None,
         status=RoundStatus.active,
     )
     db.add(new_round)
-    story.status = StoryStatus.designing
+    story.status = restart_target
     story.coding_report = None
     story.test_guide = None
     story.coding_input_hash = None
     delete_doc(story.project, story, "coding_report.md")
     delete_doc(story.project, story, "test_guide.md")
     await db.flush()
-    return {"id": story.id, "status": "designing", "action": "restart"}
+    return {"id": story.id, "status": restart_target.value, "action": "restart"}
 
 
 @actions_router.post("/stories/{story_id}/stop")

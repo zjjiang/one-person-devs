@@ -28,12 +28,18 @@ class Base(DeclarativeBase):
 
 class StoryStatus(str, enum.Enum):
     preparing = "preparing"
+    briefing = "briefing"
     clarifying = "clarifying"
     planning = "planning"
     designing = "designing"
     coding = "coding"
     verifying = "verifying"
     done = "done"
+
+
+class StoryMode(str, enum.Enum):
+    full = "full"
+    light = "light"
 
 
 class RoundType(str, enum.Enum):
@@ -209,6 +215,9 @@ class Story(Base):
     feature_tag: Mapped[str | None] = mapped_column(String(100), nullable=True)
     status: Mapped[StoryStatus] = mapped_column(
         Enum(StoryStatus), default=StoryStatus.preparing
+    )
+    mode: Mapped[StoryMode] = mapped_column(
+        Enum(StoryMode), default=StoryMode.full, server_default="full"
     )
     current_round: Mapped[int] = mapped_column(Integer, default=1)
     # Active round foreign key for fast lookup

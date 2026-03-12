@@ -32,7 +32,7 @@ from opd.engine.context import (
     build_refine_prd_prompt,
     parse_refine_response,
 )
-from opd.engine.hashing import STAGE_INPUT_MAP, compute_stage_input_hash
+from opd.engine.hashing import STAGE_INPUT_MAP, LIGHT_STAGE_INPUT_MAP, compute_stage_input_hash
 from opd.engine.notify import send_notification
 from opd.engine.orchestrator import Orchestrator
 from opd.engine.stages.base import StageContext
@@ -59,6 +59,7 @@ async def _get_site_url() -> str:
 
 _STAGE_LABELS: dict[str, str] = {
     "preparing": "需求分析",
+    "briefing": "编码指引",
     "clarifying": "需求澄清",
     "planning": "技术方案",
     "designing": "详细设计",
@@ -266,11 +267,13 @@ def _start_ai_stage(story_id: int, orch: Orchestrator,
                                         status, story_id)
                             if stage_result.next_status:
                                 story.status = stage_result.next_status
+                            story_mode = story.mode.value if hasattr(story.mode, "value") else getattr(story, "mode", "full")
                             input_hash = compute_stage_input_hash(
-                                story, story.project, status,
+                                story, story.project, status, mode=story_mode,
                             )
-                            if input_hash and status in STAGE_INPUT_MAP:
-                                hash_field = STAGE_INPUT_MAP[status][2]
+                            input_map = LIGHT_STAGE_INPUT_MAP if story_mode == "light" else STAGE_INPUT_MAP
+                            if input_hash and status in input_map:
+                                hash_field = input_map[status][2]
                                 setattr(story, hash_field, input_hash)
                             # Auto-create PR after coding completes
                             if status == "coding":
@@ -421,6 +424,7 @@ def _start_chat_ai(story_id: int, user_message: str, orch: Orchestrator,
                     status = ensure_status_value(story.status)
                     prompt_builders = {
                         "preparing": build_refine_prd_prompt,
+                        "briefing": build_refine_prd_prompt,
                         "clarifying": build_clarifying_chat_prompt,
                         "planning": build_planning_chat_prompt,
                         "designing": build_designing_chat_prompt,
@@ -433,6 +437,7 @@ def _start_chat_ai(story_id: int, user_message: str, orch: Orchestrator,
                     # Map stage → (doc filename, story field, event type)
                     doc_map = {
                         "preparing": ("prd.md", "prd", "doc_updated"),
+                        "briefing": ("prd.md", "prd", "doc_updated"),
                         "clarifying": ("prd.md", "prd", "doc_updated"),
                         "planning": ("technical_design.md", "technical_design", "doc_updated"),
                         "designing": ("detailed_design.md", "detailed_design", "doc_updated"),

@@ -58,21 +58,33 @@ import PrdEditor from "../components/PrdEditor";
 import ChatPanel from "../components/ChatPanel";
 import ClarifyQA from "../components/ClarifyQA";
 
-const AI_STAGES = [
+const FULL_AI_STAGES = [
   "preparing",
   "clarifying",
   "planning",
   "designing",
   "coding",
 ];
-const DOC_CHAT_STAGES = ["preparing", "clarifying", "planning", "designing"];
+const LIGHT_AI_STAGES = ["briefing", "coding"];
+const FULL_DOC_CHAT_STAGES = [
+  "preparing",
+  "clarifying",
+  "planning",
+  "designing",
+];
+const LIGHT_DOC_CHAT_STAGES = ["briefing"];
 
 // Stage → primary editable document
-const STAGE_PRIMARY_DOC: Record<string, string> = {
+const FULL_STAGE_PRIMARY_DOC: Record<string, string> = {
   preparing: "prd",
   clarifying: "prd",
   planning: "technical_design",
   designing: "detailed_design",
+  coding: "coding_report",
+  verifying: "coding_report",
+};
+const LIGHT_STAGE_PRIMARY_DOC: Record<string, string> = {
+  briefing: "prd",
   coding: "coding_report",
   verifying: "coding_report",
 };
@@ -175,6 +187,15 @@ export default function StoryDetail() {
 
   if (!story) return null;
 
+  const isLight = story.mode === "light";
+  const AI_STAGES = isLight ? LIGHT_AI_STAGES : FULL_AI_STAGES;
+  const DOC_CHAT_STAGES = isLight
+    ? LIGHT_DOC_CHAT_STAGES
+    : FULL_DOC_CHAT_STAGES;
+  const STAGE_PRIMARY_DOC = isLight
+    ? LIGHT_STAGE_PRIMARY_DOC
+    : FULL_STAGE_PRIMARY_DOC;
+
   const isAiStage = AI_STAGES.includes(story.status);
   const isDocChatStage = DOC_CHAT_STAGES.includes(story.status);
   const primaryDoc = STAGE_PRIMARY_DOC[story.status] || "prd";
@@ -194,11 +215,15 @@ export default function StoryDetail() {
     story.ai_running || story.ai_stage_running || story.status === "coding";
 
   // Rollback: stages before current that can be rolled back to
-  const currentIdx = DOC_CHAT_STAGES.indexOf(story.status);
-  const rollbackTargets =
-    isDocChatStage && currentIdx > 0
-      ? DOC_CHAT_STAGES.slice(0, currentIdx)
-      : [];
+  const rollbackTargets = (() => {
+    if (!isDocChatStage) return [];
+    if (isLight) {
+      // Light mode: briefing is the only doc stage, no rollback from it
+      return [];
+    }
+    const currentIdx = DOC_CHAT_STAGES.indexOf(story.status);
+    return currentIdx > 0 ? DOC_CHAT_STAGES.slice(0, currentIdx) : [];
+  })();
 
   const handleConfirm = async () => {
     try {
@@ -235,7 +260,9 @@ export default function StoryDetail() {
         message.success("已开始迭代编码");
       } else {
         await restartStory(story.id, iterateFeedback);
-        message.success("已回退重写，进入详细设计");
+        message.success(
+          isLight ? "已回退到编码指引" : "已回退重写，进入详细设计",
+        );
       }
       refresh();
     } catch {
@@ -500,6 +527,7 @@ export default function StoryDetail() {
             {story.title}
           </Typography.Title>
           <Tag>{STAGE_LABELS[story.status] || story.status}</Tag>
+          {isLight && <Tag color="blue">轻量</Tag>}
           <span style={{ color: "#888", fontSize: 12 }}>
             轮次 {story.current_round}
           </span>
@@ -560,14 +588,16 @@ export default function StoryDetail() {
                   迭代
                 </Button>
               </Tooltip>
-              <Tooltip title="编码结果不行，回到详细设计重来">
-                <Button
-                  onClick={handleRestart}
-                  disabled={story.ai_stage_running}
-                >
-                  重写
-                </Button>
-              </Tooltip>
+              {!isLight && (
+                <Tooltip title="编码结果不行，回到详细设计重来">
+                  <Button
+                    onClick={handleRestart}
+                    disabled={story.ai_stage_running}
+                  >
+                    重写
+                  </Button>
+                </Tooltip>
+              )}
             </>
           )}
           {hasOpenPR &&
@@ -611,7 +641,7 @@ export default function StoryDetail() {
 
       {/* Stage stepper — compact, no Card */}
       <div style={{ marginBottom: 8, flexShrink: 0 }}>
-        <StageStepper status={story.status} />
+        <StageStepper status={story.status} mode={story.mode} />
       </div>
 
       {/* Main content area — docs always primary */}
@@ -732,6 +762,7 @@ export default function StoryDetail() {
                   <div style={{ fontSize: 16 }}>AI 正在生成文档...</div>
                   <div style={{ fontSize: 13, marginTop: 8 }}>
                     {story.status === "preparing" && "正在生成需求文档"}
+                    {story.status === "briefing" && "正在生成编码指引"}
                     {story.status === "clarifying" && "正在整理澄清问题"}
                     {story.status === "planning" && "正在生成技术方案"}
                     {story.status === "designing" && "正在生成详细设计"}

@@ -90,6 +90,7 @@ export interface Story {
   project_name: string;
   title: string;
   status: string;
+  mode: "full" | "light";
   feature_tag: string | null;
   repo_url: string;
   raw_input: string;
@@ -141,8 +142,16 @@ export const STAGE_ORDER = [
   "done",
 ] as const;
 
+export const LIGHT_STAGE_ORDER = [
+  "briefing",
+  "coding",
+  "verifying",
+  "done",
+] as const;
+
 export const STAGE_LABELS: Record<string, string> = {
   preparing: "需求分析",
+  briefing: "编码指引",
   clarifying: "需求澄清",
   planning: "技术方案",
   designing: "详细设计",
@@ -150,3 +159,7 @@ export const STAGE_LABELS: Record<string, string> = {
   verifying: "人工验证",
   done: "完成",
 };
+
+export function getStageOrder(mode: "full" | "light" = "full") {
+  return mode === "light" ? LIGHT_STAGE_ORDER : STAGE_ORDER;
+}

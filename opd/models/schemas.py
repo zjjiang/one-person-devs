@@ -48,6 +48,14 @@ class CreateStoryRequest(BaseModel):
     title: str
     raw_input: str
     feature_tag: str | None = None
+    mode: str = "full"
+
+    @field_validator("mode")
+    @classmethod
+    def validate_mode(cls, v: str) -> str:
+        if v not in ("full", "light"):
+            raise ValueError("mode must be 'full' or 'light'")
+        return v
 
 
 class QAPair(BaseModel):
@@ -127,7 +135,7 @@ class RollbackRequest(BaseModel):
     @field_validator("target_stage")
     @classmethod
     def validate_target_stage(cls, v: str) -> str:
-        allowed = {"preparing", "clarifying", "planning", "designing"}
+        allowed = {"preparing", "briefing", "clarifying", "planning", "designing"}
         if v not in allowed:
             raise ValueError(f"target_stage must be one of {allowed}")
         return v
