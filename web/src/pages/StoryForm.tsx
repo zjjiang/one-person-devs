@@ -15,7 +15,7 @@ export default function StoryForm() {
   const { id: projectId } = useParams();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
-  const [mode, setMode] = useState<"full" | "light">("full");
+  const [mode, setMode] = useState<"full" | "light">("light");
 
   const onFinish = async (values: {
     title: string;
