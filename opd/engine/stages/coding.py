@@ -5,8 +5,8 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
-from opd.db.models import StoryStatus
-from opd.engine.context import build_coding_prompt
+from opd.db.models import StoryMode, StoryStatus
+from opd.engine.context import build_coding_prompt, build_light_coding_prompt
 from opd.engine.stages.base import Stage, StageContext, StageResult
 from opd.engine.workspace import resolve_work_dir
 
@@ -123,8 +123,13 @@ class CodingStage(Stage):
 
     async def validate_preconditions(self, ctx: StageContext) -> list[str]:
         errors: list[str] = []
-        if not ctx.story.detailed_design:
-            errors.append("Story detailed_design is required for coding")
+        is_light = getattr(ctx.story, "mode", None) == StoryMode.light
+        if is_light:
+            if not ctx.story.prd:
+                errors.append("Story prd (coding brief) is required for coding in light mode")
+        else:
+            if not ctx.story.detailed_design:
+                errors.append("Story detailed_design is required for coding")
         return errors
 
     async def execute(self, ctx: StageContext) -> StageResult:
@@ -132,9 +137,15 @@ class CodingStage(Stage):
         if not ai:
             return StageResult(success=False, errors=["AI capability not available"])
 
-        system_prompt, user_prompt = build_coding_prompt(
-            ctx.story, ctx.project, ctx.round,
-        )
+        is_light = getattr(ctx.story, "mode", None) == StoryMode.light
+        if is_light:
+            system_prompt, user_prompt = build_light_coding_prompt(
+                ctx.story, ctx.project, ctx.round,
+            )
+        else:
+            system_prompt, user_prompt = build_coding_prompt(
+                ctx.story, ctx.project, ctx.round,
+            )
 
         work_dir = str(resolve_work_dir(ctx.project))
 

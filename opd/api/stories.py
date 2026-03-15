@@ -23,6 +23,7 @@ from opd.db.models import (
     Round,
     RoundStatus,
     Story,
+    StoryMode,
     StoryStatus,
     WorkspaceStatus,
 )
@@ -30,7 +31,7 @@ from opd.db.session import get_session_factory
 from opd.engine.hashing import should_skip_ai
 from opd.engine.notify import send_notification
 from opd.engine.orchestrator import Orchestrator
-from opd.engine.state_machine import ensure_status_value
+from opd.engine.state_machine import ensure_status_value, get_next_status
 from opd.engine.workspace import read_doc, resolve_work_dir, write_doc
 from opd.models.schemas import (
     AnswerRequest,
@@ -61,12 +62,14 @@ async def create_story(
             detail="工作区中缺少 CLAUDE.md，请先在工作区目录下执行 claude /init 生成",
         )
 
+    initial_status = StoryStatus.briefing if req.mode == "light" else StoryStatus.preparing
     story = Story(
         project_id=project_id,
         title=req.title,
         raw_input=req.raw_input,
         feature_tag=req.feature_tag,
-        status=StoryStatus.preparing,
+        mode=StoryMode(req.mode),
+        status=initial_status,
         current_round=1,
     )
     db.add(story)
@@ -119,6 +122,7 @@ async def get_story(
         "project_name": story.project.name,
         "title": story.title,
         "status": story.status.value,
+        "mode": story.mode.value if hasattr(story.mode, "value") else story.mode,
         "feature_tag": story.feature_tag,
         "repo_url": story.project.repo_url,
         "raw_input": story.raw_input,
@@ -175,17 +179,10 @@ async def confirm_stage(
         raise HTTPException(status_code=404, detail="Story not found")
 
     status = ensure_status_value(story.status)
-    next_status_map = {
-        "preparing": "clarifying",
-        "clarifying": "planning",
-        "planning": "designing",
-        "designing": "coding",
-        "verifying": "done",
-    }
-    if status not in next_status_map:
+    mode = story.mode.value if hasattr(story.mode, "value") else story.mode
+    next_status = get_next_status(status, mode)
+    if next_status is None:
         raise HTTPException(status_code=400, detail=f"Cannot confirm in status: {status}")
-
-    next_status = next_status_map[status]
 
     # Block concurrent coding within the same project
     if next_status == "coding" and orch.has_coding_task(story.project_id):
@@ -200,10 +197,10 @@ async def confirm_stage(
     story.status = next_status
     await db.flush()
 
-    ai_stages = {"clarifying", "planning", "designing", "coding"}
+    ai_stages = {"clarifying", "planning", "designing", "coding"} if mode == "full" else {"coding"}
     skipped_ai = False
     if next_status in ai_stages:
-        if should_skip_ai(story, story.project, next_status):
+        if should_skip_ai(story, story.project, next_status, mode=mode):
             skipped_ai = True
             logger.info(
                 "Skipping AI for stage [%s] story %s — input unchanged",
@@ -309,7 +306,8 @@ async def chat_message(
     if not story:
         raise HTTPException(status_code=404, detail="Story not found")
     status = ensure_status_value(story.status)
-    chat_stages = ("preparing", "clarifying", "planning", "designing")
+    mode = story.mode.value if hasattr(story.mode, "value") else story.mode
+    chat_stages = ("preparing", "clarifying", "planning", "designing") if mode == "full" else ("briefing",)
     if status not in chat_stages:
         raise HTTPException(
             status_code=400, detail=f"Chat only available in {'/'.join(chat_stages)} stages"

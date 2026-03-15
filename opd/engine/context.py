@@ -184,6 +184,22 @@ def build_preparing_prompt(story: Story, project: Project) -> tuple[str, str]:
     return system, user
 
 
+def build_briefing_prompt(story: Story, project: Project) -> tuple[str, str]:
+    """Return (system_prompt, user_prompt) for lightweight coding brief generation."""
+    system = (
+        "你是一个资深开发者。根据用户的任务描述，生成一份简洁的编码指引。\n"
+        "编码指引应包含以下四个部分：\n"
+        "1. **改动目标** — 一句话说明要做什么\n"
+        "2. **涉及文件/模块** — 列出需要修改的文件和模块\n"
+        "3. **具体改动点** — 每个文件的改动说明\n"
+        "4. **验收标准** — 如何验证改动正确\n\n"
+        "保持简洁，控制在 500 字以内。使用 Markdown 格式输出。\n\n"
+        + build_project_context(project, include_work_dir=True)
+    )
+    user = f"请根据以下任务描述生成编码指引：\n\n{story.raw_input}"
+    return system, user
+
+
 def build_clarifying_prompt(
     story: Story, project: Project, source_context: str = "",
 ) -> tuple[str, str]:
@@ -258,6 +274,20 @@ def build_coding_prompt(story: Story, project: Project, round_: Round) -> tuple[
         user += f"\n\n## 上一轮 Review 意见\n{round_.close_reason}\n请根据以上意见修改代码。"
     elif round_.type.value == "restart" and round_.close_reason:
         user += f"\n\n## 上一轮失败原因\n{round_.close_reason}\n请避免重蹈覆辙。"
+    return system, user
+
+
+def build_light_coding_prompt(story: Story, project: Project, round_: Round) -> tuple[str, str]:
+    """Return (system_prompt, user_prompt) for lightweight AI coding (uses briefing/prd)."""
+    system = (
+        "你是一个资深开发者。根据编码指引，直接编写代码。\n"
+        "严格按照指引实现，不要添加额外功能。\n"
+        "编码完成后，请输出一段总结，包括：改动概述、如何运行和测试、注意事项。\n\n"
+        + build_project_context(project, include_work_dir=True)
+    )
+    user = f"## 编码指引\n{_resolve_doc(story, project, 'prd', 'prd.md')}"
+    if round_.type.value == "iterate" and round_.close_reason:
+        user += f"\n\n## 上一轮 Review 意见\n{round_.close_reason}\n请根据以上意见修改代码。"
     return system, user
 
 

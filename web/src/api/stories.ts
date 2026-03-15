@@ -9,6 +9,7 @@ export const createStory = (
     title: string;
     raw_input: string;
     feature_tag?: string;
+    mode?: "full" | "light";
   },
 ) =>
   request<{ id: number }>(`/api/projects/${projectId}/stories`, {

@@ -11,19 +11,44 @@ def ensure_status_value(status) -> str:
 
 VALID_TRANSITIONS: dict[str, list[str]] = {
     StoryStatus.preparing: [StoryStatus.clarifying],
+    StoryStatus.briefing: [StoryStatus.coding],
     StoryStatus.clarifying: [StoryStatus.planning, StoryStatus.preparing],
     StoryStatus.planning: [StoryStatus.designing, StoryStatus.preparing, StoryStatus.clarifying],
     StoryStatus.designing: [
         StoryStatus.coding, StoryStatus.preparing, StoryStatus.clarifying, StoryStatus.planning,
     ],
-    StoryStatus.coding: [StoryStatus.verifying, StoryStatus.designing],
-    StoryStatus.verifying: [StoryStatus.done, StoryStatus.coding, StoryStatus.designing],
+    StoryStatus.coding: [StoryStatus.verifying, StoryStatus.designing, StoryStatus.briefing],
+    StoryStatus.verifying: [
+        StoryStatus.done, StoryStatus.coding, StoryStatus.designing, StoryStatus.briefing,
+    ],
 }
 
 ROLLBACK_ACTIONS: dict[tuple[str, str], str] = {
     (StoryStatus.verifying, StoryStatus.coding): "iterate",
     (StoryStatus.verifying, StoryStatus.designing): "restart",
+    (StoryStatus.verifying, StoryStatus.briefing): "restart",
 }
+
+# Mode-aware "next status" mapping for confirm_stage.
+# VALID_TRANSITIONS defines what's *possible*; this defines the *default next step* per mode.
+MODE_NEXT_STATUS: dict[str, dict[str, str]] = {
+    "full": {
+        "preparing": "clarifying",
+        "clarifying": "planning",
+        "planning": "designing",
+        "designing": "coding",
+        "verifying": "done",
+    },
+    "light": {
+        "briefing": "coding",
+        "verifying": "done",
+    },
+}
+
+
+def get_next_status(current: str, mode: str) -> str | None:
+    """Return the default next status for a given stage and mode."""
+    return MODE_NEXT_STATUS.get(mode, MODE_NEXT_STATUS["full"]).get(current)
 
 
 class InvalidTransitionError(Exception):

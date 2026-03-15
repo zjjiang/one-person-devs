@@ -90,6 +90,11 @@ class GitHubProvider(SCMProvider):
         parts = url.split("/")
         return f"{parts[-2]}/{parts[-1]}"
 
+    def _ensure_github(self):
+        """Raise if PyGithub client is not initialized."""
+        if self._github is None:
+            raise RuntimeError("GitHub client not initialized — check PyGithub installation and token")
+
     async def clone_repo(self, repo_url: str, target_dir: str) -> None:
         auth_url = repo_url.replace("https://", f"https://x-access-token:{self._token}@")
         proc = await asyncio.create_subprocess_exec(
@@ -131,34 +136,72 @@ class GitHubProvider(SCMProvider):
 
     async def create_pull_request(self, repo_url: str, branch: str,
                                   title: str, body: str) -> dict:
-        repo = self._github.get_repo(self._repo_name(repo_url))
-        pr = repo.create_pull(title=title, body=body, head=branch, base="main")
+        self._ensure_github()
+
+        def _create():
+            repo = self._github.get_repo(self._repo_name(repo_url))
+            return repo.create_pull(title=title, body=body, head=branch, base="main")
+
+        pr = await asyncio.to_thread(_create)
         return {"pr_number": pr.number, "pr_url": pr.html_url}
 
     async def get_review_comments(self, repo_url: str, pr_number: int) -> list[dict]:
-        repo = self._github.get_repo(self._repo_name(repo_url))
-        pr = repo.get_pull(pr_number)
-        comments = []
-        for review in pr.get_reviews():
-            if review.body:
-                comments.append({"user": review.user.login, "body": review.body})
-        for comment in pr.get_review_comments():
-            comments.append({
-                "user": comment.user.login,
-                "body": comment.body,
-                "path": comment.path,
-            })
-        return comments
+        self._ensure_github()
+
+        def _fetch():
+            repo = self._github.get_repo(self._repo_name(repo_url))
+            pr = repo.get_pull(pr_number)
+            comments = []
+            for review in pr.get_reviews():
+                if review.body:
+                    comments.append({"user": review.user.login, "body": review.body})
+            for comment in pr.get_review_comments():
+                comments.append({
+                    "user": comment.user.login,
+                    "body": comment.body,
+                    "path": comment.path,
+                })
+            return comments
+
+        return await asyncio.to_thread(_fetch)
 
     async def merge_pull_request(self, repo_url: str, pr_number: int) -> None:
-        repo = self._github.get_repo(self._repo_name(repo_url))
-        pr = repo.get_pull(pr_number)
-        pr.merge()
+        self._ensure_github()
+
+        def _merge():
+            from github import GithubException
+            repo = self._github.get_repo(self._repo_name(repo_url))
+            pr = repo.get_pull(pr_number)
+            if not pr.mergeable:
+                raise RuntimeError(
+                    f"PR #{pr_number} 存在合并冲突，请先解决冲突后再合并"
+                )
+            try:
+                pr.merge()
+            except GithubException as e:
+                status = e.status
+                msg = e.data.get("message", str(e)) if isinstance(e.data, dict) else str(e)
+                if status == 405:
+                    raise RuntimeError(f"PR #{pr_number} 无法合并: {msg}") from e
+                if status == 403:
+                    raise RuntimeError(f"Token 权限不足，无法合并 PR #{pr_number}") from e
+                if status == 409:
+                    raise RuntimeError(
+                        f"PR #{pr_number} 存在合并冲突: {msg}"
+                    ) from e
+                raise RuntimeError(f"合并 PR #{pr_number} 失败 (HTTP {status}): {msg}") from e
+
+        await asyncio.to_thread(_merge)
 
     async def close_pull_request(self, repo_url: str, pr_number: int) -> None:
-        repo = self._github.get_repo(self._repo_name(repo_url))
-        pr = repo.get_pull(pr_number)
-        pr.edit(state="closed")
+        self._ensure_github()
+
+        def _close():
+            repo = self._github.get_repo(self._repo_name(repo_url))
+            pr = repo.get_pull(pr_number)
+            pr.edit(state="closed")
+
+        await asyncio.to_thread(_close)
 
     async def get_repo_structure(self, repo_dir: str) -> str:
         proc = await asyncio.create_subprocess_exec(

@@ -24,6 +24,7 @@ from opd.engine.stages.coding import CodingStage
 from opd.engine.stages.designing import DesigningStage
 from opd.engine.stages.planning import PlanningStage
 from opd.engine.stages.preparing import PreparingStage
+from opd.engine.stages.briefing import BriefingStage
 from opd.engine.stages.verifying import VerifyingStage
 from opd.engine.state_machine import StateMachine
 from opd.middleware import ErrorHandlingMiddleware, LoggingMiddleware
@@ -78,6 +79,7 @@ async def lifespan(app: FastAPI):
     # Orchestrator
     stages = {
         StoryStatus.preparing.value: PreparingStage(),
+        StoryStatus.briefing.value: BriefingStage(),
         StoryStatus.clarifying.value: ClarifyingStage(),
         StoryStatus.planning.value: PlanningStage(),
         StoryStatus.designing.value: DesigningStage(),
