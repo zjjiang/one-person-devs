@@ -30,3 +30,4 @@ node_modules/
 web/tsconfig.tsbuildinfo
 tasks-*.json
 test_register.html
+opd.db.backup
